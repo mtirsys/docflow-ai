@@ -1,0 +1,27 @@
+### 新增文档
+POST http://localhost:8080/api/documents
+Content-Type: application/json
+
+{
+  "title": "Java 学习笔记",
+  "fileType": "PDF"
+}
+
+### 查询文档列表
+GET http://localhost:8080/api/documents
+### 查询单条文档
+GET http://localhost:8080/api/documents/1
+
+
+### 修改文档
+PUT http://localhost:8080/api/documents/1
+Content-Type: application/json
+
+{
+  "title": "更新后的 Java 学习笔记",
+  "fileType": "PDF"
+}
+
+
+### 删除文档
+DELETE http://localhost:8080/api/documents/1

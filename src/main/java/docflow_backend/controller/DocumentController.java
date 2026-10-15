@@ -40,4 +40,60 @@ public class DocumentController {
     public List<Document> findAll() {
         return documentMapper.findAll();
     }
+    @GetMapping("/{id}")
+    public ResponseEntity<Document> findById(
+            @PathVariable Long id) {
+
+        Document document = documentMapper.findById(id);
+
+        if (document == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(document);
+    }
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id) {
+
+        if (documentMapper.findById(id) == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        documentMapper.deleteById(id);
+
+        return ResponseEntity.ok(
+                Map.of("message", "deleted", "id", id)
+        );
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<?> update(
+            @PathVariable Long id,
+            @RequestBody Document document) {
+
+        if (document.getTitle() == null
+                || document.getTitle().isBlank()
+                || document.getFileType() == null
+                || document.getFileType().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of(
+                            "error",
+                            "title and fileType must not be blank"
+                    ));
+        }
+
+        if (documentMapper.findById(id) == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        documentMapper.updateById(
+                id,
+                document.getTitle().trim(),
+                document.getFileType().trim()
+        );
+
+        return ResponseEntity.ok(
+                Map.of("message", "updated", "id", id)
+        );
+    }
 }
