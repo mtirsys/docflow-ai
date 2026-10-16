@@ -31,3 +31,11 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Project specific ###
+.mvn-repo/
+.workbuddy/
+body.json
+empty-filetype.json
+empty-title.json
+*.log

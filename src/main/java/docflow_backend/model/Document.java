@@ -1,14 +1,25 @@
 package docflow_backend.model;
 
+import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDateTime;
 
 public class Document {
 
     private Long id;
+
+    @NotBlank(message = "title must not be blank")
     private String title;
+
     private String fileType;
     private String status;
     private LocalDateTime createdAt;
+
+    /**
+     * Required by Jackson when binding a JSON request body and by MyBatis when
+     * materialising query results.
+     */
+    public Document() {
+    }
 
     public Long getId() {
         return id;

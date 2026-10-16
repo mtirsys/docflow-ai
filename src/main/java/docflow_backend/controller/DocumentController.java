@@ -2,6 +2,7 @@ package docflow_backend.controller;
 
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,7 +22,7 @@ public class DocumentController {
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(
-            @RequestBody Document document) {
+            @Valid @RequestBody Document document) {
 
         int rows = documentMapper.insert(document);
 
@@ -41,25 +42,24 @@ public class DocumentController {
         return documentMapper.findAll();
     }
     @GetMapping("/{id}")
-    public ResponseEntity<Document> findById(
+    public ResponseEntity<?> findById(
             @PathVariable Long id) {
 
         Document document = documentMapper.findById(id);
 
         if (document == null) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Not Found", "message", "Document not found"));
         }
 
         return ResponseEntity.ok(document);
     }
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable Long id) {
-
-        if (documentMapper.findById(id) == null) {
-            return ResponseEntity.notFound().build();
+        int rows = documentMapper.deleteById(id);
+        if (rows == 0) {
+            return notFound();
         }
-
-        documentMapper.deleteById(id);
 
         return ResponseEntity.ok(
                 Map.of("message", "deleted", "id", id)
@@ -69,31 +69,27 @@ public class DocumentController {
     @PutMapping("/{id}")
     public ResponseEntity<?> update(
             @PathVariable Long id,
-            @RequestBody Document document) {
+            @Valid @RequestBody Document document) {
 
-        if (document.getTitle() == null
-                || document.getTitle().isBlank()
-                || document.getFileType() == null
-                || document.getFileType().isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "error",
-                            "title and fileType must not be blank"
-                    ));
-        }
+        String fileType = document.getFileType() == null
+                ? "" : document.getFileType().trim();
 
-        if (documentMapper.findById(id) == null) {
-            return ResponseEntity.notFound().build();
-        }
-
-        documentMapper.updateById(
+        int rows = documentMapper.updateById(
                 id,
                 document.getTitle().trim(),
-                document.getFileType().trim()
+                fileType
         );
+        if (rows == 0) {
+            return notFound();
+        }
 
         return ResponseEntity.ok(
                 Map.of("message", "updated", "id", id)
         );
+    }
+
+    private ResponseEntity<Map<String, String>> notFound() {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "Not Found", "message", "Document not found"));
     }
 }
