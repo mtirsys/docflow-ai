@@ -1,5 +1,6 @@
 package docflow_backend.controller;
 
+import docflow_backend.dto.DocumentRequest;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
 import jakarta.validation.Valid;
@@ -22,8 +23,9 @@ public class DocumentController {
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(
-            @Valid @RequestBody Document document) {
+            @Valid @RequestBody DocumentRequest request) {
 
+        Document document = toDocument(request);
         Long id = documentService.create(document);
 
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -64,8 +66,9 @@ public class DocumentController {
     @PutMapping("/{id}")
     public ResponseEntity<?> update(
             @PathVariable Long id,
-            @Valid @RequestBody Document document) {
+            @Valid @RequestBody DocumentRequest request) {
 
+        Document document = toDocument(request);
         if (!documentService.update(id, document)) {
             return notFound();
         }
@@ -73,6 +76,17 @@ public class DocumentController {
         return ResponseEntity.ok(
                 Map.of("message", "updated", "id", id)
         );
+    }
+
+    /**
+     * 把请求 DTO 转换为业务层使用的 Document 实体。
+     * 只搬 title 和 fileType，id、status、createdAt 始终由服务端掌控。
+     */
+    private Document toDocument(DocumentRequest request) {
+        Document document = new Document();
+        document.setTitle(request.getTitle());
+        document.setFileType(request.getFileType());
+        return document;
     }
 
     private ResponseEntity<Map<String, String>> notFound() {
