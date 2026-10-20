@@ -29,6 +29,19 @@ public interface DocumentMapper {
         """)
     List<Document> findAll();
 
+    @Select("""
+        SELECT id, title, file_type, status, created_at
+        FROM documents
+        ORDER BY id DESC
+        LIMIT #{size} OFFSET #{offset}
+        """)
+    List<Document> findPage(
+            @Param("size") int size,
+            @Param("offset") long offset);
+
+    @Select("SELECT COUNT(*) FROM documents")
+    long count();
+
     @Delete("""
     DELETE FROM documents
     WHERE id = #{id}

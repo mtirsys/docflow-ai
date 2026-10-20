@@ -10,12 +10,12 @@ import jakarta.validation.constraints.Size;
  */
 public class DocumentRequest {
 
-    @NotBlank(message = "must not be blank")
-    @Size(max = 255, message = "must not exceed 255 characters")
+    @NotBlank(message = "文档标题不能为空")
+    @Size(max = 255, message = "文档标题不能超过 255 个字符")
     private String title;
 
-    @NotBlank(message = "must not be blank")
-    @Size(max = 50, message = "must not exceed 50 characters")
+    @NotBlank(message = "文件类型不能为空")
+    @Size(max = 50, message = "文件类型不能超过 50 个字符")
     private String fileType;
 
     /**

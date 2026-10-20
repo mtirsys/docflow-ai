@@ -7,8 +7,23 @@ Content-Type: application/json
   "fileType": "PDF"
 }
 
-### 查询文档列表
+### 查询文档列表（分页；默认 page=0、size=10）
 GET http://localhost:8080/api/documents
+
+### 指定分页参数
+GET http://localhost:8080/api/documents?page=0&size=5
+
+### 下一页
+GET http://localhost:8080/api/documents?page=1&size=5
+
+### 非法 page → 期待 400
+GET http://localhost:8080/api/documents?page=-1
+
+### 非法 size → 期待 400
+GET http://localhost:8080/api/documents?size=0
+
+### 非法 size → 期待 400
+GET http://localhost:8080/api/documents?size=101
 ### 查询单条文档
 GET http://localhost:8080/api/documents/1
 
@@ -25,3 +40,41 @@ Content-Type: application/json
 
 ### 删除文档
 DELETE http://localhost:8080/api/documents/1
+
+### ===== Day 10 异常场景验证 =====
+
+### 标题为空 → 期待 400 {"status":400,"error":"Bad Request","message":"文档标题不能为空",...}
+POST http://localhost:8080/api/documents
+Content-Type: application/json
+
+{
+  "title": "   ",
+  "fileType": "PDF"
+}
+
+### 非法 JSON → 期待 400 {"status":400,"message":"请求体格式错误：请检查 JSON 语法和字段类型",...}
+POST http://localhost:8080/api/documents
+Content-Type: application/json
+
+{
+  "title":
+
+### 查询不存在的文档 → 期待 404 {"status":404,"error":"Not Found","message":"文档不存在：id=99999",...}
+GET http://localhost:8080/api/documents/99999
+
+### 路径参数不是数字 → 期待 400 {"status":400,"message":"参数 id 格式错误，应为 Long",...}
+GET http://localhost:8080/api/documents/abc
+
+### 不带 JSON 头的新增 → 期待 415 {"status":415,"message":"Content-Type 不支持，请使用 application/json",...}
+POST http://localhost:8080/api/documents
+
+{
+  "title": "无 Content-Type 的请求",
+  "fileType": "PDF"
+}
+
+### 对单条文档发 POST（方法不允许）→ 期待 405
+POST http://localhost:8080/api/documents/1
+
+### 不存在的接口路径 → 期待 404 {"status":404,"message":"请求的接口不存在",...}
+GET http://localhost:8080/api/no-such-api

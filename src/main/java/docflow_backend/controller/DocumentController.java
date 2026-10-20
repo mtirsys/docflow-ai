@@ -1,6 +1,7 @@
 package docflow_backend.controller;
 
 import docflow_backend.dto.DocumentRequest;
+import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
 import jakarta.validation.Valid;
@@ -8,9 +9,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
+/**
+ * Day 10 之后，Controller 里不再出现任何"查不到就手写 404"的分支：
+ * - 文档不存在：Service 抛 DocumentNotFoundException，GlobalExceptionHandler 统一返回 404；
+ * - 参数校验失败：@Valid 触发 MethodArgumentNotValidException，统一返回 400；
+ * - 其他意外：统一返回 500（不泄露内部信息）。
+ * Controller 因此只剩"接收请求 + 调用业务 + 包装成功响应"三件事。
+ */
 @RestController
 @RequestMapping("/api/documents")
 public class DocumentController {
@@ -36,42 +43,35 @@ public class DocumentController {
     }
 
     @GetMapping
-    public List<Document> findAll() {
-        return documentService.findAll();
+    public DocumentPageResponse findAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        return documentService.findPage(page, size);
     }
+
     @GetMapping("/{id}")
-    public ResponseEntity<?> findById(
+    public Document findById(
             @PathVariable Long id) {
 
-        Document document = documentService.findById(id);
-
-        if (document == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Not Found", "message", "Document not found"));
-        }
-
-        return ResponseEntity.ok(document);
+        return documentService.findById(id);
     }
+
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable Long id) {
-        if (!documentService.delete(id)) {
-            return notFound();
-        }
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable Long id) {
+        documentService.delete(id);
 
         return ResponseEntity.ok(
-                    Map.of("message", "deleted", "id", id)
+                Map.of("message", "deleted", "id", id)
         );
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<?> update(
+    public ResponseEntity<Map<String, Object>> update(
             @PathVariable Long id,
             @Valid @RequestBody DocumentRequest request) {
 
-        Document document = toDocument(request);
-        if (!documentService.update(id, document)) {
-            return notFound();
-        }
+        documentService.update(id, toDocument(request));
 
         return ResponseEntity.ok(
                 Map.of("message", "updated", "id", id)
@@ -87,10 +87,5 @@ public class DocumentController {
         document.setTitle(request.getTitle());
         document.setFileType(request.getFileType());
         return document;
-    }
-
-    private ResponseEntity<Map<String, String>> notFound() {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("error", "Not Found", "message", "Document not found"));
     }
 }
