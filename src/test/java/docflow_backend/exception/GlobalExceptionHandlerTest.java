@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -128,6 +129,33 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.size").value(10))
                 .andExpect(jsonPath("$.totalElements").value(0))
                 .andExpect(jsonPath("$.totalPages").value(0));
+
+        verify(documentService).findPage(0, 10);
+    }
+
+    @Test
+    @DisplayName("指定分页参数：绑定到 Service，并序列化分页内容和元数据")
+    void findAllBindsRequestedPaginationAndReturnsPageJson() throws Exception {
+        Document document = new Document();
+        document.setId(42L);
+        document.setTitle("分页文档");
+        document.setFileType("PDF");
+        given(documentService.findPage(2, 5))
+                .willReturn(new DocumentPageResponse(java.util.List.of(document), 2, 5, 23, 5));
+
+        mockMvc.perform(get("/api/documents")
+                        .param("page", "2")
+                        .param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(42))
+                .andExpect(jsonPath("$.content[0].title").value("分页文档"))
+                .andExpect(jsonPath("$.content[0].fileType").value("PDF"))
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.size").value(5))
+                .andExpect(jsonPath("$.totalElements").value(23))
+                .andExpect(jsonPath("$.totalPages").value(5));
+
+        verify(documentService).findPage(2, 5);
     }
 
     @Test
