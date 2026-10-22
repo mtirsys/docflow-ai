@@ -10,9 +10,12 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
@@ -88,6 +91,51 @@ public class GlobalExceptionHandler {
             IllegalArgumentException e, HttpServletRequest request) {
 
         return build(HttpStatus.BAD_REQUEST, e.getMessage(), request);
+    }
+
+    /**
+     * 缺少必需的请求参数 → 400。Day 13 的典型场景：
+     * 客户端发的不是 multipart 表单（比如忘了用 form-data），file 参数无处可取。
+     * 不加这个处理器，这个异常会掉进兜底的 500——
+     * 但"客户端忘传字段"明明是客户端的错，不该让服务器背锅。
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(
+            MissingServletRequestParameterException e, HttpServletRequest request) {
+
+        String message = "缺少必需的请求参数：" + e.getParameterName();
+
+        return build(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    /**
+     * 缺少 multipart 表单里的文件字段 → 400。
+     * 和上面那个是"兄弟异常"：客户端确实发了 multipart/form-data，
+     * 但里面没有名叫 file 的部分——Apifox 里忘选文件就会走到这里。
+     * 两者名字只差一个词：Parameter 是"普通参数"，Part 是"表单的组成部分"。
+     */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart(
+            MissingServletRequestPartException e, HttpServletRequest request) {
+
+        String message = "缺少必需的上传字段：" + e.getRequestPartName()
+                + "（请确认使用 form-data，且字段名为 file）";
+
+        return build(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    /**
+     * 上传文件超过大小限制 → 400。
+     * 注意时序：multipart 配置（max-file-size）在 Tomcat 解析请求阶段就生效了，
+     * 请求根本走不到 Controller/Service，直接在这里被拦下。
+     * 所以 DocumentService 里的 10 MB 检查和这里是一道"双保险"，
+     * 谁先碰到谁拒绝。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSize(
+            MaxUploadSizeExceededException e, HttpServletRequest request) {
+
+        return build(HttpStatus.BAD_REQUEST, "文件过大：单个文件不能超过 10 MB", request);
     }
 
     /**

@@ -2,12 +2,14 @@ package docflow_backend.controller;
 
 import docflow_backend.dto.DocumentRequest;
 import docflow_backend.dto.DocumentPageResponse;
+import docflow_backend.dto.UploadCheckResponse;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
@@ -40,6 +42,26 @@ public class DocumentController {
                         "message", "created",
                         "id", id
                 ));
+    }
+
+    /**
+     * Day 13：基础文件上传验证接口。
+     *
+     * 和 create() 的关键区别：请求不是 JSON，而是 multipart/form-data（表单），
+     * 所以参数上没有 @RequestBody，改用 @RequestParam("file") 从表单里取名为 file 的文件字段。
+     * MultipartFile 就是 Spring 给这个字段的包装：文件名、大小、Content-Type、内容流都在里面。
+     *
+     * Controller 依旧只做三件事：接收请求 → 调用业务 → 包装成功响应。
+     * 所有"什么样的文件算合法"的判断都在 DocumentService 里，
+     * 失败时抛 IllegalArgumentException，由 GlobalExceptionHandler 统一翻译成 400。
+     */
+    @PostMapping("/upload-check")
+    public ResponseEntity<UploadCheckResponse> uploadCheck(
+            @RequestParam("file") MultipartFile file) {
+
+        UploadCheckResponse result = documentService.checkUploadedFile(file);
+
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping
