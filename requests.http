@@ -78,3 +78,40 @@ POST http://localhost:8080/api/documents/1
 
 ### 不存在的接口路径 → 期待 404 {"status":404,"message":"请求的接口不存在",...}
 GET http://localhost:8080/api/no-such-api
+
+### ===== Day 13 文件上传校验 =====
+
+### 上传合法 PDF → 期待 200 {"originalFilename":"report.pdf","stored":false,...}
+# 注意：< ./文件名 中的路径是相对本 requests.http 所在目录的，
+# 发请求前请确保对应文件存在，或改成你电脑上的任意 PDF 路径
+POST http://localhost:8080/api/documents/upload-check
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="report.pdf"
+Content-Type: application/pdf
+
+< ./report.pdf
+--WebAppBoundary--
+
+### 不支持的扩展名 .exe → 期待 400 {"message":"不支持的文件类型：只允许 PDF、DOCX、MD，收到的是 .exe",...}
+POST http://localhost:8080/api/documents/upload-check
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="virus.exe"
+Content-Type: application/octet-stream
+
+< ./virus.exe
+--WebAppBoundary--
+
+### 不用 multipart 而发普通表单 → 期待 400 {"message":"缺少必需的请求参数：file",...}
+POST http://localhost:8080/api/documents/upload-check
+Content-Type: application/x-www-form-urlencoded
+
+foo=bar
+
+### 超 10 MB 大文件 → 期待 400 {"message":"文件过大：单个文件不能超过 10 MB",...}
+# 走的是容器层（Tomcat + multipart 配置）那道防线，必须真发请求才能验证
+# 用 Apifox 或 PowerShell 构造一个 11MB 文件上传，例如：
+#   fsutil file createnew big.pdf 11534336

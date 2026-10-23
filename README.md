@@ -26,6 +26,7 @@ DocFlow AI 是一个基于 Java 的 AI 知识库项目，目前处于基础后�
 - 文档删除
 - 参数校验（title 不能为空）
 - 统一异常处理（400 / 404 / 500 返回 JSON）
+- 文件上传校验（`POST /api/documents/upload-check`，只验证、不落盘）
 
 ## 文档分页查询
 
@@ -52,6 +53,35 @@ GET /api/documents?page=0&size=10
   "totalElements": 0,
   "totalPages": 0
 }
+```
+
+## 文件上传校验
+
+`POST /api/documents/upload-check` 只验证文件"能不能收"，**不保存文件、不写数据库**（响应里 `stored` 恒为 `false`）。
+
+请求格式是 `multipart/form-data`，字段名必须为 `file`。校验规则：
+
+- 文件必须非空（0 字节拒绝）
+- 扩展名白名单：`pdf`、`docx`、`md`（不区分大小写）
+- 单文件不超过 10 MB（multipart 配置与业务层各拦一道，双保险）
+
+成功响应示例：
+
+```json
+{
+  "originalFilename": "report.pdf",
+  "size": 1048576,
+  "contentType": "application/pdf",
+  "stored": false,
+  "message": "校验通过：本次只做验证，文件未保存到服务器"
+}
+```
+
+校验失败返回 400，错误体与其他接口一致的 `ErrorResponse` 格式。对应的上层配置在 `application.properties`：
+
+```properties
+spring.servlet.multipart.max-file-size=10MB
+spring.servlet.multipart.max-request-size=12MB
 ```
 
 ## 环境要求
