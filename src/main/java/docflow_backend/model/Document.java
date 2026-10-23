@@ -1,13 +1,11 @@
 package docflow_backend.model;
 
-import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDateTime;
 
 public class Document {
 
     private Long id;
 
-    @NotBlank(message = "title must not be blank")
     private String title;
 
     private String fileType;

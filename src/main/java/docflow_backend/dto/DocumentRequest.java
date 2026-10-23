@@ -1,6 +1,5 @@
 package docflow_backend.dto;
 
-import docflow_backend.model.Document;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
