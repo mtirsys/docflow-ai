@@ -27,6 +27,7 @@ DocFlow AI 是一个基于 Java 的 AI 知识库项目，目前处于基础后�
 - 参数校验（title 不能为空）
 - 统一异常处理（400 / 404 / 500 返回 JSON）
 - 文件上传校验（`POST /api/documents/upload-check`，只验证、不落盘）
+- 本地文件上传（`POST /api/documents/upload`，校验规则相同，文件真正保存到本地存储目录）
 
 ## 文档分页查询
 
@@ -83,6 +84,28 @@ GET /api/documents?page=0&size=10
 spring.servlet.multipart.max-file-size=10MB
 spring.servlet.multipart.max-request-size=12MB
 ```
+
+## 本地文件上传
+
+`POST /api/documents/upload` 复用 upload-check 的全部校验规则，校验通过后由 `LocalFileStorageService` 把文件写入本地存储目录，**今天不写 documents 数据库记录、不解析文件内容**。
+
+- 存储目录：配置项 `docflow.storage.dir`，默认 `D:/docflow-storage`（在源码目录之外），也可用环境变量 `DOCFLOW_STORAGE_DIR` 覆盖；目录不存在会自动创建。
+- 存储名：服务器生成的 `UUID + 原扩展名（小写）`，用户上传的文件名只用于回显，不参与磁盘路径。
+- 成功返回 **201**，示例：
+
+```json
+{
+  "originalFilename": "report.pdf",
+  "size": 1048576,
+  "contentType": "application/pdf",
+  "storageKey": "3f8c2a7e-....-....pdf",
+  "stored": true,
+  "message": "上传成功：文件已保存到服务器"
+}
+```
+
+- 校验失败与 upload-check 一样返回 400；磁盘写入失败返回 500（通用提示，不泄露存储路径）。
+- `storageKey` 是以后找回文件的钥匙：后续接入数据库时，把它和原始文件名、大小等元数据一起存入文档记录。
 
 ## 环境要求
 

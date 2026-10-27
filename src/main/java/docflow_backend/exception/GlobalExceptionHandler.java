@@ -180,6 +180,20 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Day 15：文件存储失败（磁盘不可写、目录建不出来等）→ 500。
+     * 这不是客户端的错，所以不能像校验失败那样返回 400；
+     * 同时磁盘路径、权限细节只写日志，响应里只给通用提示。
+     */
+    @ExceptionHandler(FileStorageException.class)
+    public ResponseEntity<ErrorResponse> handleFileStorage(
+            FileStorageException e, HttpServletRequest request) {
+
+        log.error("文件存储失败：{} {}", request.getMethod(), request.getRequestURI(), e);
+
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "文件保存失败，请稍后重试", request);
+    }
+
+    /**
      * 最后的兜底：所有没被上面接住的异常 → 500。
      * 只写日志（带完整堆栈，供排查），响应体只给一句通用话，不泄露任何内部细节。
      */

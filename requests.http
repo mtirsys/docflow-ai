@@ -115,3 +115,40 @@ foo=bar
 # 走的是容器层（Tomcat + multipart 配置）那道防线，必须真发请求才能验证
 # 用 Apifox 或 PowerShell 构造一个 11MB 文件上传，例如：
 #   fsutil file createnew big.pdf 11534336
+
+### ===== Day 15 本地文件上传 =====
+
+### 真正上传 PDF → 期待 201 {"storageKey":"<UUID>.pdf","stored":true,...}
+# 文件会保存到 docflow.storage.dir（默认 D:/docflow-storage），文件名是服务器生成的 UUID
+# 同样先把 < ./report.pdf 换成本地真实文件
+POST http://localhost:8080/api/documents/upload
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="report.pdf"
+Content-Type: application/pdf
+
+< ./report.pdf
+--WebAppBoundary--
+
+### 上传空文件 → 期待 400（复用 upload-check 的校验，不会落盘）
+POST http://localhost:8080/api/documents/upload
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="empty.pdf"
+Content-Type: application/pdf
+
+< ./empty.pdf
+--WebAppBoundary--
+
+### 上传不支持的 .exe → 期待 400（不会落盘）
+POST http://localhost:8080/api/documents/upload
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="virus.exe"
+Content-Type: application/octet-stream
+
+< ./virus.exe
+--WebAppBoundary--

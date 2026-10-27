@@ -3,6 +3,7 @@ package docflow_backend.controller;
 import docflow_backend.exception.GlobalExceptionHandler;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.service.DocumentService;
+import docflow_backend.storage.LocalFileStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,9 +38,11 @@ class UploadCheckTest {
     void setUp() {
         DocumentMapper documentMapper = mock(DocumentMapper.class);
         DocumentService documentService = new DocumentService(documentMapper);
+        // upload-check 只做校验不落盘，存储服务用 mock 占位即可（不会被调用）
+        LocalFileStorageService storageService = mock(LocalFileStorageService.class);
 
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new DocumentController(documentService))
+                .standaloneSetup(new DocumentController(documentService, storageService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

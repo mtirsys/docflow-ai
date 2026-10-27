@@ -3,8 +3,10 @@ package docflow_backend.controller;
 import docflow_backend.dto.DocumentRequest;
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.dto.UploadCheckResponse;
+import docflow_backend.dto.UploadResponse;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
+import docflow_backend.storage.LocalFileStorageService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,9 +27,12 @@ import java.util.Map;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final LocalFileStorageService fileStorageService;
 
-    public DocumentController(DocumentService documentService) {
+    public DocumentController(DocumentService documentService,
+                              LocalFileStorageService fileStorageService) {
         this.documentService = documentService;
+        this.fileStorageService = fileStorageService;
     }
 
     @PostMapping
@@ -62,6 +67,35 @@ public class DocumentController {
         UploadCheckResponse result = documentService.checkUploadedFile(file);
 
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Day 15：真正的本地上传接口 = upload-check 的全部校验 + 本地落盘。
+     *
+     * 校验逻辑一行都不重写：直接调用 checkUploadedFile()，它抛出的一切
+     * IllegalArgumentException（空文件、坏扩展名、超 10 MB）在这里同样变成 400。
+     * 校验通过后才轮到存储服务写盘；写盘失败抛 FileStorageException → 500。
+     *
+     * 今天只存文件：不插入 documents 记录、不解析文件内容。
+     * 返回 201（创建了一个新资源：磁盘上的文件），storageKey 是以后找回它的钥匙。
+     */
+    @PostMapping("/upload")
+    public ResponseEntity<UploadResponse> upload(
+            @RequestParam("file") MultipartFile file) {
+
+        UploadCheckResponse checked = documentService.checkUploadedFile(file);
+        String storageKey = fileStorageService.store(file);
+
+        UploadResponse response = new UploadResponse(
+                checked.getOriginalFilename(),
+                checked.getSize(),
+                checked.getContentType(),
+                storageKey,
+                true,
+                "上传成功：文件已保存到服务器"
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
