@@ -9,6 +9,9 @@ public class Document {
     private String title;
 
     private String fileType;
+    private String storageKey;
+    private String originalFilename;
+    private Long fileSize;
     private String status;
     private LocalDateTime createdAt;
 
@@ -41,6 +44,30 @@ public class Document {
 
     public void setFileType(String fileType) {
         this.fileType = fileType;
+    }
+
+    public String getStorageKey() {
+        return storageKey;
+    }
+
+    public void setStorageKey(String storageKey) {
+        this.storageKey = storageKey;
+    }
+
+    public String getOriginalFilename() {
+        return originalFilename;
+    }
+
+    public void setOriginalFilename(String originalFilename) {
+        this.originalFilename = originalFilename;
+    }
+
+    public Long getFileSize() {
+        return fileSize;
+    }
+
+    public void setFileSize(Long fileSize) {
+        this.fileSize = fileSize;
     }
 
     public String getStatus() {

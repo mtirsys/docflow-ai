@@ -3,6 +3,7 @@ package docflow_backend.controller;
 import com.jayway.jsonpath.JsonPath;
 import docflow_backend.exception.GlobalExceptionHandler;
 import docflow_backend.mapper.DocumentMapper;
+import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
 import docflow_backend.storage.LocalFileStorageService;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -42,14 +46,21 @@ class DocumentUploadTest {
     Path tempDir;
 
     private MockMvc mockMvc;
+    private DocumentMapper documentMapper;
 
     @BeforeEach
     void setUp() {
-        DocumentService documentService = new DocumentService(mock(DocumentMapper.class));
+        documentMapper = mock(DocumentMapper.class);
         LocalFileStorageService storageService = new LocalFileStorageService(tempDir.toString());
+        DocumentService documentService = new DocumentService(documentMapper, storageService);
+        when(documentMapper.insert(org.mockito.ArgumentMatchers.any(Document.class)))
+                .thenAnswer(invocation -> {
+                    invocation.getArgument(0, Document.class).setId(101L);
+                    return 1;
+                });
 
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new DocumentController(documentService, storageService))
+                .standaloneSetup(new DocumentController(documentService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -63,6 +74,7 @@ class DocumentUploadTest {
                         .file(new MockMultipartFile(
                                 "file", "季度报告.pdf", "application/pdf", content)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(101))
                 .andExpect(jsonPath("$.originalFilename").value("季度报告.pdf"))
                 .andExpect(jsonPath("$.size").value(content.length))
                 .andExpect(jsonPath("$.contentType").value("application/pdf"))
@@ -75,6 +87,15 @@ class DocumentUploadTest {
         assertTrue(Files.exists(stored), "响应里的 storageKey 必须能在存储目录找到文件");
         assertArrayEquals(content, Files.readAllBytes(stored));
         assertFalse(storageKey.contains("季度报告"), "storageKey 不能来自用户文件名");
+
+        ArgumentCaptor<Document> document = ArgumentCaptor.forClass(Document.class);
+        verify(documentMapper).insert(document.capture());
+        assertEquals("季度报告.pdf", document.getValue().getTitle());
+        assertEquals("PDF", document.getValue().getFileType());
+        assertEquals("季度报告.pdf", document.getValue().getOriginalFilename());
+        assertEquals((long) content.length, document.getValue().getFileSize());
+        assertEquals(storageKey, document.getValue().getStorageKey());
+        assertEquals("UPLOADED", document.getValue().getStatus());
     }
 
     @Test
@@ -123,7 +144,7 @@ class DocumentUploadTest {
         LocalFileStorageService brokenStorage = new LocalFileStorageService(blocker.toString());
         MockMvc brokenMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(
-                        new DocumentService(mock(DocumentMapper.class)), brokenStorage))
+                        new DocumentService(mock(DocumentMapper.class), brokenStorage)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
@@ -136,6 +157,21 @@ class DocumentUploadTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertFalse(body.contains("blocker"), "响应不能泄露存储路径细节");
+    }
+
+    @Test
+    @DisplayName("数据库插入失败：删除刚落盘的文件，再返回统一的 500")
+    void uploadDatabaseFailureDeletesStoredFile() throws Exception {
+        when(documentMapper.insert(org.mockito.ArgumentMatchers.any(Document.class)))
+                .thenThrow(new RuntimeException("database unavailable"));
+
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile(
+                                "file", "will-clean-up.pdf", "application/pdf", "x".getBytes())))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.message").value("服务器内部错误，请稍后重试"));
+
+        assertStorageDirIsEmpty();
     }
 
     /** 校验失败的请求连存储服务都不该碰到：目录必须空空如也。 */

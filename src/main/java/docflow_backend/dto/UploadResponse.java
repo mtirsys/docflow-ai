@@ -12,6 +12,7 @@ package docflow_backend.dto;
  * 知道文件在 D:/docflow-storage 的哪个角落对前端没有用处，还泄露服务器结构。
  */
 public record UploadResponse(
+        Long id,
         String originalFilename,
         long size,
         String contentType,

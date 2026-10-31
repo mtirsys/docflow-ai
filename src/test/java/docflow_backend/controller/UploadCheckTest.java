@@ -37,12 +37,12 @@ class UploadCheckTest {
     @BeforeEach
     void setUp() {
         DocumentMapper documentMapper = mock(DocumentMapper.class);
-        DocumentService documentService = new DocumentService(documentMapper);
         // upload-check 只做校验不落盘，存储服务用 mock 占位即可（不会被调用）
         LocalFileStorageService storageService = mock(LocalFileStorageService.class);
+        DocumentService documentService = new DocumentService(documentMapper, storageService);
 
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new DocumentController(documentService, storageService))
+                .standaloneSetup(new DocumentController(documentService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

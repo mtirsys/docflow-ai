@@ -2,9 +2,11 @@ package docflow_backend.service;
 
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.dto.UploadCheckResponse;
+import docflow_backend.dto.UploadResponse;
 import docflow_backend.exception.DocumentNotFoundException;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
+import docflow_backend.storage.LocalFileStorageService;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -21,9 +23,12 @@ public class DocumentService {
     private static final long MAX_UPLOAD_SIZE_BYTES = 10L * 1024 * 1024;
 
     private final DocumentMapper documentMapper;
+    private final LocalFileStorageService fileStorageService;
 
-    public DocumentService(DocumentMapper documentMapper) {
+    public DocumentService(DocumentMapper documentMapper,
+                           LocalFileStorageService fileStorageService) {
         this.documentMapper = documentMapper;
+        this.fileStorageService = fileStorageService;
     }
 
     public Long create(Document document) {
@@ -137,6 +142,48 @@ public class DocumentService {
         // getSize() 是服务器解析报文后数出来的字节数；getContentType() 是客户端自报的，
         // 两者可信度不同，所以响应里分开返回，让调用方自己判断。
         return new UploadCheckResponse(filename, file.getSize(), file.getContentType());
+    }
+
+    /**
+     * 上传的业务编排放在 Service：校验、落盘、元数据入库都属于同一次上传。
+     * MySQL 事务无法回滚普通磁盘写入，所以数据库失败时要主动删除刚刚写入的文件。
+     */
+    public UploadResponse upload(MultipartFile file) {
+        UploadCheckResponse checked = checkUploadedFile(file);
+        String storageKey = fileStorageService.store(file);
+
+        Document document = new Document();
+        document.setTitle(checked.getOriginalFilename());
+        document.setOriginalFilename(checked.getOriginalFilename());
+        document.setFileType(extractExtension(checked.getOriginalFilename()).toUpperCase());
+        document.setFileSize(checked.getSize());
+        document.setStorageKey(storageKey);
+        document.setStatus("UPLOADED");
+
+        try {
+            int rows = documentMapper.insert(document);
+            if (rows != 1 || document.getId() == null) {
+                throw new IllegalStateException("上传元数据保存失败");
+            }
+        } catch (RuntimeException e) {
+            boolean cleaned = fileStorageService.delete(storageKey);
+            if (!cleaned) {
+                // LocalFileStorageService 已记录具体 I/O 原因；这里补充业务关联信息。
+                org.slf4j.LoggerFactory.getLogger(DocumentService.class)
+                        .error("上传元数据入库失败后未能清理文件，storageKey={}", storageKey);
+            }
+            throw e;
+        }
+
+        return new UploadResponse(
+                document.getId(),
+                checked.getOriginalFilename(),
+                checked.getSize(),
+                checked.getContentType(),
+                storageKey,
+                true,
+                "上传成功：文件已保存到服务器并已记录文档元数据"
+        );
     }
 
     /**

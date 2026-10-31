@@ -3,6 +3,7 @@ package docflow_backend.service;
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
+import docflow_backend.storage.LocalFileStorageService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -20,7 +21,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class DocumentServiceTest {
 
     private final DocumentMapper documentMapper = mock(DocumentMapper.class);
-    private final DocumentService documentService = new DocumentService(documentMapper);
+    private final DocumentService documentService = new DocumentService(
+            documentMapper, mock(LocalFileStorageService.class));
 
     @Test
     @DisplayName("第二页每页五条：offset 为 5，总页数向上取整")

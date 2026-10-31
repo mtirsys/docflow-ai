@@ -77,4 +77,25 @@ public class LocalFileStorageService {
 
         return storageKey;
     }
+
+    /**
+     * 只删除本次服务生成并返回的 storageKey 对应文件，用于"文件已写入、数据库却失败"
+     * 的补偿。普通磁盘文件不参与 MySQL 事务，必须显式处理。
+     *
+     * @return true 表示文件已删除或本来就不存在；false 表示未能安全删除，详细原因已记日志
+     */
+    public boolean delete(String storageKey) {
+        Path target = storageDir.resolve(storageKey).normalize();
+        if (!target.startsWith(storageDir) || target.equals(storageDir)) {
+            log.error("拒绝清理越界的 storageKey：{}", storageKey);
+            return false;
+        }
+
+        try {
+            return Files.deleteIfExists(target) || !Files.exists(target);
+        } catch (IOException e) {
+            log.error("数据库写入失败后的文件清理失败：{}", target, e);
+            return false;
+        }
+    }
 }

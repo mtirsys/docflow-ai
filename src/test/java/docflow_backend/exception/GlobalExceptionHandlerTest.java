@@ -4,7 +4,6 @@ import docflow_backend.controller.DocumentController;
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
-import docflow_backend.storage.LocalFileStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,8 +47,7 @@ class GlobalExceptionHandlerTest {
         validator.afterPropertiesSet();
 
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new DocumentController(
-                        documentService, mock(LocalFileStorageService.class)))
+                .standaloneSetup(new DocumentController(documentService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(validator)
                 .build();
