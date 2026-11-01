@@ -4,12 +4,16 @@ import docflow_backend.exception.FileStorageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -76,6 +80,47 @@ public class LocalFileStorageService {
         }
 
         return storageKey;
+    }
+
+    /**
+     * Day 17：按 storageKey 取回文件，交给上层作为下载响应的内容。
+     *
+     * 返回 Resource（Spring 对"可读字节流"的抽象）而不是 byte[] 或 Path：
+     * - byte[] 会把整个文件一次性读进内存，大文件 + 并发下载会撑爆内存；
+     * - Resource 交给 ResponseEntity 后由 Tomcat 边读边发（流式传输）。
+     *
+     * 越界检查和 store() 一样是双保险，但方向相反：写入防"存到外面去"，
+     * 读取防"从外面偷读"——本次 storageKey 来自数据库，不能默认它干净。
+     *
+     * 文件不存在抛受检异常 FileNotFoundException：这是"预期中可能发生的业务状况"
+     * （数据库有记录、磁盘文件丢了），编译器强制 DocumentService 当面处理并翻译，
+     * 而不是像 FileStorageException 那样直接惊动全局兜底的 500。
+     *
+     * @throws FileStorageException storageKey 越界（疑似数据库被篡改）
+     * @throws FileNotFoundException 文件不存在或不可读
+     */
+    public Resource load(String storageKey) throws FileNotFoundException {
+        Path target = storageDir.resolve(storageKey).normalize();
+        if (!target.startsWith(storageDir) || target.equals(storageDir)) {
+            throw new FileStorageException("存储路径越界，已拒绝读取");
+        }
+
+        // isReadable 同时覆盖"不存在"和"存在但读不了"（如权限被改）两种情况。
+        if (!Files.isReadable(target)) {
+            // 只把 storageKey 写进异常（它本来就是服务器生成的 UUID，非敏感信息），
+            // 绝不把磁盘绝对路径带给上层，更不会出现在 HTTP 响应里。
+            throw new FileNotFoundException("存储文件不存在或不可读：" + storageKey);
+        }
+
+        // Path → URI → UrlResource 是官方标准写法。构造器声明了受检异常 MalformedURLException，
+        // 但 Path.toUri() 生成的 file: URI 实际不会触发它；真触发了也属于服务器内部异常，
+        // 包装成 FileStorageException 走 500 通道，和 store() 处理 IOException 的手法一致。
+        try {
+            return new UrlResource(target.toUri());
+        } catch (MalformedURLException e) {
+            log.error("文件读取时 URI 转换失败：{}", storageKey, e);
+            throw new FileStorageException("文件读取失败", e);
+        }
     }
 
     /**

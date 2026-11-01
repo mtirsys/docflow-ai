@@ -19,6 +19,16 @@ public class DocumentNotFoundException extends RuntimeException {
         this.documentId = documentId;
     }
 
+    /**
+     * Day 17：文档记录存在、但对应的实体（目前是磁盘文件）拿不到时使用。
+     * 默认消息"文档不存在"在这种场景下是撒谎，所以允许调用方给出如实的描述。
+     * documentId 照常保留，方便日志和排查定位。
+     */
+    public DocumentNotFoundException(Long documentId, String message) {
+        super(message);
+        this.documentId = documentId;
+    }
+
     public Long getDocumentId() {
         return documentId;
     }

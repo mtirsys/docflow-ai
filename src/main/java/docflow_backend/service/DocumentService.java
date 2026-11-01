@@ -1,5 +1,6 @@
 package docflow_backend.service;
 
+import docflow_backend.dto.DocumentDownload;
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.dto.UploadCheckResponse;
 import docflow_backend.dto.UploadResponse;
@@ -7,14 +8,20 @@ import docflow_backend.exception.DocumentNotFoundException;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
 import docflow_backend.storage.LocalFileStorageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.FileNotFoundException;
 import java.util.List;
 import java.util.Set;
 
 @Service
 public class DocumentService {
+
+    private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 
     /** Day 13：允许上传的扩展名白名单，全部转成小写后再比较，所以 .PDF/.Pdf 也放行。 */
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of("pdf", "docx", "md");
@@ -184,6 +191,40 @@ public class DocumentService {
                 true,
                 "上传成功：文件已保存到服务器并已记录文档元数据"
         );
+    }
+
+    /**
+     * Day 17：下载的业务编排，和 upload() 是一对镜像——
+     * upload 是"校验 → 落盘 → 入库"，download 是"查库 → 取盘 → 交货"。
+     *
+     * 三步各自复用已有资产：
+     * 1. findById(id)：查不到记录时它自己会抛 DocumentNotFoundException（404）；
+     * 2. fileStorageService.load(storageKey)：拿 Resource（文件内容的抽象）；
+     * 3. 把 resource + originalFilename 打包成 DocumentDownload 交给 Controller。
+     *
+     * 文件丢失的翻译发生在这里：load() 的受检异常 FileNotFoundException
+     * 是编译器点名要处理的（受检异常 = 监工）。翻译规则：
+     * - 对客户端说 404（"要的东西拿不到"）而不是 500——
+     *   500 的潜台词是"稍后重试也许就好"，可文件丢了重试无用，得管理员修；
+     * - 对内记 error 日志——"库里有记录、盘上没文件"是数据不一致，运维必须可见。
+     *
+     * 注意 catch 的是 FileNotFoundException 而不是宽泛的 Exception：
+     * 真正的服务器故障（磁盘炸了等）应该继续走 FileStorageException 的 500 通道，
+     * 误吞成 404 会掩盖故障。
+     */
+    public DocumentDownload download(Long id) {
+        Document document = findById(id);
+
+        Resource resource;
+        try {
+            resource = fileStorageService.load(document.getStorageKey());
+        } catch (FileNotFoundException e) {
+            log.error("文档对应的存储文件缺失：id={}, storageKey={}",
+                    id, document.getStorageKey());
+            throw new DocumentNotFoundException(id, "文档存在，但文件已丢失，请联系管理员");
+        }
+
+        return new DocumentDownload(resource, document.getOriginalFilename());
     }
 
     /**
