@@ -186,3 +186,26 @@ DELETE http://localhost:8080/api/documents/15
 # 在文件管理器或 PowerShell 执行：
 #   Get-ChildItem D:/docflow-storage | Where-Object Name -eq '<storageKey>'
 # 期待无结果。若文件仍在，属于孤儿文件，检查服务端日志。
+
+### ===== Day 19 Markdown 内容读取 =====
+# 前置准备：POST /upload 传一个真实 .md 文件（内容建议含中文），记下返回的 id。
+
+### 1. 正常读取 Markdown 内容 → 期待 200
+# {"id":15,"originalFilename":"report.md","content":"# 原文…","characterCount":123}
+# 核对：content 与原文件逐字一致；中文不乱码；characterCount = 字符数。
+GET http://localhost:8080/api/documents/15/content
+
+### 2. 读取不存在的文档 ID → 期待 404 {"message":"文档不存在：id=99999",...}
+GET http://localhost:8080/api/documents/99999/content
+
+### 3. 数据库有记录、文件被手动删除 → 期待 404 {"message":"文档存在，但文件已丢失，请联系管理员",...}
+# 操作：记下某条 md 记录的 storageKey，去 D:/docflow-storage 手动删掉文件，再请求。
+GET http://localhost:8080/api/documents/15/content
+
+### 4. 文档类型不是 Markdown（如上传过 PDF）→ 期待 400
+# {"message":"该文档类型不支持内容读取，目前仅支持 Markdown（.md）",...}
+GET http://localhost:8080/api/documents/17/content
+
+### 5. 与下载接口对比（同一 id）
+# GET /api/documents/15/download 返回原始字节（浏览器保存），
+# GET /api/documents/15/content 返回 JSON 文本——两兄弟行为对照。

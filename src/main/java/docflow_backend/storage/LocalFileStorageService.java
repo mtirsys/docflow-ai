@@ -14,6 +14,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,6 +35,12 @@ import java.util.UUID;
 public class LocalFileStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(LocalFileStorageService.class);
+
+    /**
+     * Day 19：文本读取上限，与上传白名单的 10 MB 口径一致。
+     * 上传时已限过一次，这里是防御第二道：不信任数据库里的历史数据。
+     */
+    private static final long MAX_TEXT_READ_BYTES = 10L * 1024 * 1024;
 
     private final Path storageDir;
 
@@ -120,6 +127,47 @@ public class LocalFileStorageService {
         } catch (MalformedURLException e) {
             log.error("文件读取时 URI 转换失败：{}", storageKey, e);
             throw new FileStorageException("文件读取失败", e);
+        }
+    }
+
+    /**
+     * Day 19：把 storageKey 对应的文件按 UTF-8 读成文本，供内容读取接口使用。
+     *
+     * 和 load() 的分工：load() 返回 Resource（字节流），服务"把原始文件发给浏览器"的下载；
+     * 这里返回 String（文本），服务"把内容读进 JSON"的接口。
+     *
+     * 越界检查、存在性检查和 load() 完全同款：本类所有"从磁盘读"的方法
+     * 都走同一套三段式（定位→验权→读取），安全问题只需要审计一个模式。
+     *
+     * 必须显式指定 UTF-8：不传字符集时 Files.readString 会用操作系统默认编码
+     * （Windows 中文系统是 GBK），同一份 UTF-8 文件在不同机器上读出不同结果。
+     *
+     * 读取前先检查文件大小：上传白名单已限 10 MB，但这里不信任历史数据——
+     * 数据库被篡改或早期写入的超大文件，不能被无限制灌进内存。
+     *
+     * @throws FileStorageException storageKey 越界、文件超大或读取时 I/O 失败（→ 500）
+     * @throws FileNotFoundException 文件不存在或不可读（由调用方翻译成 404）
+     */
+    public String readText(String storageKey) throws FileNotFoundException {
+        Path target = storageDir.resolve(storageKey).normalize();
+        if (!target.startsWith(storageDir) || target.equals(storageDir)) {
+            throw new FileStorageException("存储路径越界，已拒绝读取");
+        }
+
+        if (!Files.isReadable(target)) {
+            throw new FileNotFoundException("存储文件不存在或不可读：" + storageKey);
+        }
+
+        try {
+            long size = Files.size(target);
+            if (size > MAX_TEXT_READ_BYTES) {
+                log.error("文件超出文本读取上限，已拒绝读取：{}（{} 字节）", storageKey, size);
+                throw new FileStorageException("文件过大，拒绝读取内容");
+            }
+            return Files.readString(target, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.error("文件内容读取失败：{}", storageKey, e);
+            throw new FileStorageException("文件内容读取失败", e);
         }
     }
 

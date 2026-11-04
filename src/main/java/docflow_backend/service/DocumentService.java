@@ -1,5 +1,6 @@
 package docflow_backend.service;
 
+import docflow_backend.dto.DocumentContentResponse;
 import docflow_backend.dto.DocumentDownload;
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.dto.UploadCheckResponse;
@@ -265,6 +266,47 @@ public class DocumentService {
         }
 
         return new DocumentDownload(resource, document.getOriginalFilename());
+    }
+
+    /**
+     * Day 19：读取文档内容（目前仅支持 Markdown，纯文本可直接读成字符串）。
+     *
+     * 编排四步，三种失败全部走既有通道：
+     * 1. findById(id)：文档不存在 → DocumentNotFoundException → 404；
+     * 2. 类型检查：只信服务器入库的 file_type（upload 时由扩展名算出，客户端改不了），
+     *    绝不信任浏览器自报的 Content-Type；不支持 → IllegalArgumentException → 400；
+     * 3. readText(storageKey)：文件丢失 → FileNotFoundException，翻译手法与 download()
+     *    相同（404 + 如实提示），越界/超大/IO 错则由 readText 内部抛 FileStorageException → 500；
+     * 4. 打包 DocumentContentResponse，由 Controller 转 JSON。
+     *
+     * PDF/DOCX 是二进制格式，解析需要引入重依赖，今天不做——本方法就是将来
+     * 扩展解析能力时唯一需要改的地方（在第 2 步放行更多类型、第 3 步换解析器）。
+     */
+    public DocumentContentResponse readContent(Long id) {
+        Document document = findById(id);
+
+        // 常量放 equalsIgnoreCase 左侧：file_type 为 null（早期 JSON 创建的记录）时
+        // 返回 false 而不是 NPE。忽略大小写防的是数据库被手工改过的情况。
+        if (!"MD".equalsIgnoreCase(document.getFileType())) {
+            throw new IllegalArgumentException(
+                    "该文档类型不支持内容读取，目前仅支持 Markdown（.md）");
+        }
+
+        String content;
+        try {
+            content = fileStorageService.readText(document.getStorageKey());
+        } catch (FileNotFoundException e) {
+            log.error("文档内容对应的存储文件缺失：id={}, storageKey={}",
+                    id, document.getStorageKey());
+            throw new DocumentNotFoundException(id, "文档存在，但文件已丢失，请联系管理员");
+        }
+
+        return new DocumentContentResponse(
+                document.getId(),
+                document.getOriginalFilename(),
+                content,
+                content.length()
+        );
     }
 
     /**

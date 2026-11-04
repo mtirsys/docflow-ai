@@ -1,5 +1,6 @@
 package docflow_backend.controller;
 
+import docflow_backend.dto.DocumentContentResponse;
 import docflow_backend.dto.DocumentDownload;
 import docflow_backend.dto.DocumentRequest;
 import docflow_backend.dto.DocumentPageResponse;
@@ -125,6 +126,25 @@ public class DocumentController {
                 .contentType(contentType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .body(download.resource());
+    }
+
+    /**
+     * Day 19：读取文档内容（目前仅支持 Markdown）。
+     *
+     * 和 download() 是一对"内容"兄弟，分工不同：
+     * - download 把文件当字节流搬运（Content-Disposition 触发浏览器保存）；
+     * - 这里把文件内容读成文本放进 JSON，客户端（如前端渲染器）拿到即可用，
+     *   响应自然就是 200 + JSON，无需设置任何特殊响应头。
+     *
+     * 返回类型是 record DTO：Jackson 自动把 id / originalFilename / content /
+     * characterCount 序列化成 JSON 字段，storageKey 等内部细节不会出现。
+     *
+     * 失败路径与全项目一致：文档不存在或文件丢失 → 404；类型不支持 → 400；
+     * 存储故障 → 500。全部由 GlobalExceptionHandler 翻译，本方法零分支。
+     */
+    @GetMapping("/{id}/content")
+    public DocumentContentResponse readContent(@PathVariable Long id) {
+        return documentService.readContent(id);
     }
 
     @GetMapping
