@@ -6,6 +6,7 @@
 - MySQL `docflow` 库、`documents` 表；数据库密码从环境变量 `DB_PASSWORD` 读取。
 - 分层约定：`controller`（HTTP 入口）/ `service`（业务）/ `mapper`（MyBatis SQL）/ `model`（数据实体）/ `dto`（请求体）/ `exception`（统一异常处理），包名 `docflow_backend.*`。
 - Day 10 起：错误响应统一为 `ErrorResponse(status, error, message, path)`；文档不存在 = Service 抛 `DocumentNotFoundException` → `GlobalExceptionHandler` 返回 404；测试用 MockMvc standalone + mockito，不依赖数据库。
+- Day 18 起：删除 = 数据库记录 + 本地文件协同删。`DocumentService.delete` 采用**顺序 A（先删文件、后删 DB）**，理由：文件删除最易失败，放前面失败时 DB 未动、系统一致可重试。项目**无 @Transactional**，事务回滚不了文件删除（文件操作在事务边界外），一致性靠"顺序 + 显式失败处理"而非事务。文件失败抛 `FileStorageException`；DB 失败分 rows==0（并发删除，warn+404）与抛异常（error+兜底500，留下"记录在文件丢"由 download 404 兜底）。
 
 ## 用户偏好与约定
 

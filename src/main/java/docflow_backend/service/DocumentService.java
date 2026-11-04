@@ -5,6 +5,7 @@ import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.dto.UploadCheckResponse;
 import docflow_backend.dto.UploadResponse;
 import docflow_backend.exception.DocumentNotFoundException;
+import docflow_backend.exception.FileStorageException;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
 import docflow_backend.storage.LocalFileStorageService;
@@ -103,10 +104,49 @@ public class DocumentService {
         }
     }
 
+    /**
+     * Day 18：删除文档 = 协同删除"数据库记录 + 本地文件"。
+     *
+     * 顺序选择：先删文件、再删 DB（顺序 A）。
+     * 文件删除最易失败（权限/IO），放在 DB 删除之前：一旦失败，DB 还没被动过，
+     * 系统保持完全一致，客户端可安全重试。反过来（先 DB 后文件）若文件删失败，
+     * 会留下查不到 storageKey 的孤儿文件，无法补救。
+     *
+     * 注意：@Transactional 只能回滚 SQL，回滚不了文件删除（文件操作在事务边界之外），
+     * 所以这里不依赖事务，靠"顺序 + 失败时显式处理"保证一致。
+     */
     public void delete(Long id) {
-        int rows = documentMapper.deleteById(id);
-        if (rows == 0) {
-            throw new DocumentNotFoundException(id);
+        // 1. 先查记录：不存在则 findById 抛 DocumentNotFoundException（→404）；
+        //    存在则拿到 storageKey。它必须在删 DB 之前缓存——DB 删完就查不到了。
+        Document document = findById(id);
+        String storageKey = document.getStorageKey();
+
+        // 2. 先删本地文件。delete 返回 false 仅指"真没删成"（IO 异常或路径越界）；
+        //    文件本来就不存在会返回 true，所以"记录在、文件已丢"也能正常继续删 DB。
+        boolean fileDeleted = fileStorageService.delete(storageKey);
+        if (!fileDeleted) {
+            log.error("删除文档时文件删除失败，已中止数据库删除：id={}, storageKey={}", id, storageKey);
+            throw new FileStorageException("文件删除失败");
+        }
+
+        // 3. 再删数据库记录。两种失败分开处理：
+        //    - 抛异常（连接断等）：文件已删、记录还在 → "记录在、文件丢"，
+        //      download 的 FileNotFoundException→404 会兜底；这里记 error 让运维可见。
+        //    - 返回 0：findById 时还在、deleteById 却没删到 → 期间被并发删除，
+        //      文件已被我们删、记录也没了，状态其实一致，按既有契约返回 404。
+        try {
+            int rows = documentMapper.deleteById(id);
+            if (rows == 0) {
+                log.warn("文件已删除，但数据库记录已不存在（疑似并发删除）：id={}, storageKey={}",
+                        id, storageKey);
+                throw new DocumentNotFoundException(id);
+            }
+        } catch (DocumentNotFoundException e) {
+            throw e; // 404，不进下面的 500 通道
+        } catch (RuntimeException e) {
+            log.error("文件已删除但数据库删除抛异常，已产生不一致（记录在、文件丢）：id={}, storageKey={}",
+                    id, storageKey, e);
+            throw e; // → 兜底 500
         }
     }
 

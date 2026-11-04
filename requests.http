@@ -152,3 +152,37 @@ Content-Type: application/octet-stream
 
 < ./virus.exe
 --WebAppBoundary--
+
+### ===== Day 18 文档删除（数据库记录 + 本地文件协同删除）=====
+# 前置准备：先用 /upload 传一个真实 PDF，拿到返回的 id 和 storageKey，
+# 再把 id 填到下面各请求里。storageKey 用于在 D:/docflow-storage 下核对磁盘文件。
+
+### 1. 删除正常存在的文档 → 期待 200 {"message":"deleted","id":<id>}
+# 删完后请同步验证：
+#   - MySQL：SELECT id, storage_key FROM documents WHERE id = <id>;  应返回空
+#   - 磁盘：D:/docflow-storage/ 下应找不到 storageKey 对应的文件
+DELETE http://localhost:8080/api/documents/15
+
+### 2. 删除不存在的文档 ID → 期待 404 {"status":404,"message":"文档不存在：id=99999",...}
+DELETE http://localhost:8080/api/documents/99999
+
+### 3. 数据库有记录、本地文件已被手动删除 → 期待 200（文件不存在视为已删，继续删 DB）
+# 操作：先记下某条记录的 storageKey，去 D:/docflow-storage 手动删掉那个文件，
+# 再对这条 id 发 DELETE。正常应返回 200 deleted（幂等）。
+DELETE http://localhost:8080/api/documents/15
+
+### 4. 文件删除失败（IO 异常）→ 期待 500 {"status":500,"message":"文件操作失败，请稍后重试"}
+# 这个场景很难在本地稳定复现（需要制造 IO 失败，如把文件设为只读目录、或占用句柄）。
+# 自动化测试已覆盖（deleteWhenFileDeleteFailsLeavesDbUntouched），HTTP 层可选做。
+# 若要复现：把 D:/docflow-storage 目录权限改为只读后发 DELETE，观察 500 且 DB 记录仍在。
+DELETE http://localhost:8080/api/documents/15
+
+### 5. 删除后核对 MySQL 是否还有记录
+# 在 MySQL 客户端执行（不是 HTTP 请求）：
+#   SELECT id, title, storage_key, status FROM documents WHERE id = 15;
+# 期待 0 行。若仍有行，说明 DB 删除失败，检查服务端日志的 error 记录。
+
+### 6. 删除后核对本地磁盘是否还有文件
+# 在文件管理器或 PowerShell 执行：
+#   Get-ChildItem D:/docflow-storage | Where-Object Name -eq '<storageKey>'
+# 期待无结果。若文件仍在，属于孤儿文件，检查服务端日志。

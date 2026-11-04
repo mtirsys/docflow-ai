@@ -190,7 +190,7 @@ public class GlobalExceptionHandler {
 
         log.error("文件存储失败：{} {}", request.getMethod(), request.getRequestURI(), e);
 
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "文件保存失败，请稍后重试", request);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "文件操作失败，请稍后重试", request);
     }
 
     /**
