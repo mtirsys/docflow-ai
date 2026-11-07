@@ -51,7 +51,8 @@ class DocumentDownloadTest {
     void setUp() {
         documentMapper = mock(DocumentMapper.class);
         LocalFileStorageService storageService = new LocalFileStorageService(tempDir.toString());
-        DocumentService documentService = new DocumentService(documentMapper, storageService);
+        DocumentService documentService = new DocumentService(
+                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor());
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(documentService))

@@ -172,6 +172,31 @@ public class LocalFileStorageService {
     }
 
     /**
+     * Day 20：按 storageKey 安全定位一个已存在的文件，返回"验过货"的 Path。
+     *
+     * 和 load() / readText() 的分工：那两个方法定位完自己负责读（读字节流 / 读文本），
+     * 这里只定位、不读——因为 PDF 解析（PDFBox）需要拿到文件本身去"拆包裹"，
+     * 具体怎么读由调用方决定。三段式安全检查与它们完全同款：
+     * 定位 → 越界检查 → 可读检查，安全规则仍然只有一套。
+     *
+     * 返回的 Path 属于服务器内部细节，调用方只许拿它去读文件，
+     * 绝不允许放进任何 HTTP 响应（不能泄露磁盘路径）。
+     *
+     * @throws FileStorageException storageKey 越界（疑似数据库被篡改）（→ 500）
+     * @throws FileNotFoundException 文件不存在或不可读（由调用方翻译成 404）
+     */
+    public Path locateExistingFile(String storageKey) throws FileNotFoundException {
+        Path target = storageDir.resolve(storageKey).normalize();
+        if (!target.startsWith(storageDir) || target.equals(storageDir)) {
+            throw new FileStorageException("存储路径越界，已拒绝读取");
+        }
+        if (!Files.isReadable(target)) {
+            throw new FileNotFoundException("存储文件不存在或不可读：" + storageKey);
+        }
+        return target;
+    }
+
+    /**
      * 只删除本次服务生成并返回的 storageKey 对应文件，用于"文件已写入、数据库却失败"
      * 的补偿。普通磁盘文件不参与 MySQL 事务，必须显式处理。
      *

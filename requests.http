@@ -209,3 +209,32 @@ GET http://localhost:8080/api/documents/17/content
 ### 5. 与下载接口对比（同一 id）
 # GET /api/documents/15/download 返回原始字节（浏览器保存），
 # GET /api/documents/15/content 返回 JSON 文本——两兄弟行为对照。
+
+### ===== Day 20 PDF 文本提取 =====
+# 前置准备：POST /upload 传一个真实 PDF（内容建议含中文），记下返回的 id。
+
+### 1. 正常读取 PDF 内容 → 期待 200
+# {"id":18,"originalFilename":"report.pdf","content":"提取出的全文…","characterCount":1234}
+# 核对：content 是 PDF 的文字层文本（不是二进制乱码）；中文不乱码。
+GET http://localhost:8080/api/documents/18/content
+
+### 2. 读取不存在的文档 ID → 期待 404
+GET http://localhost:8080/api/documents/99999/content
+
+### 3. PDF 类型但文件被手动删除 → 期待 404 {"message":"文档存在，但文件已丢失，请联系管理员",...}
+# 操作：记下该 PDF 记录的 storageKey，去 D:/docflow-storage 手动删掉文件，再请求。
+GET http://localhost:8080/api/documents/18/content
+
+### 4. 损坏的 PDF → 期待 422 {"status":422,"message":"PDF 文件损坏或格式无法解析",...}
+# 操作：上传一个后缀是 .pdf 但内容不是 PDF 的文件（如把文本文件改名），
+# 再请求其 content 接口，观察 422 而不是 500。
+GET http://localhost:8080/api/documents/19/content
+
+### 5. 加密的 PDF（设了打开密码）→ 期待 422 {"message":"PDF 已加密，无法提取文本"}
+GET http://localhost:8080/api/documents/20/content
+
+### 6. 扫描图片型 PDF（无文字层）→ 期待 422 {"message":"PDF 中没有可提取的文本（可能是扫描图片型 PDF，暂不支持 OCR）"}
+GET http://localhost:8080/api/documents/21/content
+
+### 7. 类型是 DOCX → 期待 400 {"message":"该文档类型不支持内容读取，目前支持 Markdown（.md）和 PDF（.pdf）"}
+GET http://localhost:8080/api/documents/22/content

@@ -194,6 +194,29 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Day 20：文档内容解析失败（PDF 损坏/加密/无文字层/页数超限）→ 422。
+     *
+     * 为什么是 422 而不是 400/404/500：
+     * - 不是 400：这次 GET 请求本身完全合法（id 存在、类型支持），错不在请求；
+     * - 不是 404：文档和文件都在，"要的东西"是找得到的；
+     * - 不是 500：服务器没有故障，重试也不会好——锅在文件内容本身（多为上传时就坏了）；
+     * - 422（Unprocessable Entity，"无法处理的内容"）的语义正好是：
+     *   "请求没问题，但这份数据没法被处理"。
+     *
+     * message 来自 DocumentParseException 的原文（如"PDF 已加密，无法提取文本"）——
+     * 这些提示不包含磁盘路径、SQL、堆栈等内部细节，可以放心返回给客户端。
+     * 记 warn 而不是 error：这是数据源头的质量问题，运维不需要半夜被叫醒。
+     */
+    @ExceptionHandler(DocumentParseException.class)
+    public ResponseEntity<ErrorResponse> handleDocumentParse(
+            DocumentParseException e, HttpServletRequest request) {
+
+        log.warn("文档内容解析失败：{} {} - {}", request.getMethod(), request.getRequestURI(), e.getMessage());
+
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage(), request);
+    }
+
+    /**
      * 最后的兜底：所有没被上面接住的异常 → 500。
      * 只写日志（带完整堆栈，供排查），响应体只给一句通用话，不泄露任何内部细节。
      */

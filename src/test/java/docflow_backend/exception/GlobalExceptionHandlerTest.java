@@ -117,6 +117,20 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("Day 20：内容解析失败：返回 422 + DocumentParseException 的原文提示")
+    void readContentParseFailureReturns422() throws Exception {
+        willThrow(new DocumentParseException("PDF 已加密，无法提取文本"))
+                .given(documentService).readContent(999L);
+
+        mockMvc.perform(get("/api/documents/999/content"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.error").value("Unprocessable Entity"))
+                .andExpect(jsonPath("$.message").value("PDF 已加密，无法提取文本"))
+                .andExpect(jsonPath("$.path").value("/api/documents/999/content"));
+    }
+
+    @Test
     @DisplayName("默认分页参数：返回分页元数据")
     void findAllUsesDefaultPagination() throws Exception {
         given(documentService.findPage(0, 10))

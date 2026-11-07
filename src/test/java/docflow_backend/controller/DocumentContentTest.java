@@ -6,6 +6,8 @@ import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
 import docflow_backend.storage.LocalFileStorageService;
+import docflow_backend.testsupport.TestPdfWriter;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,7 @@ import java.nio.file.Path;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -27,13 +30,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Day 19：GET /api/documents/{id}/content 的自动化测试（MockMvc standalone，不起服务、不连数据库）。
+ * GET /api/documents/{id}/content 的自动化测试（MockMvc standalone，不起服务、不连数据库）。
+ * Day 19 覆盖 Markdown 读取；Day 20 扩展覆盖 PDF 提取（正常/中文/丢失/损坏/加密/无文字层）。
  *
  * 装配取舍和 DocumentDownloadTest 同源：
  * - mock 的 DocumentMapper 是"边界外的邻居"——测试需要它按剧本回答 findById，
- *   好制造"记录不存在 / 记录在但文件丢 / 类型不是 MD"几种场景；
- * - 真的 LocalFileStorageService + @TempDir 是"今天的主角"——
- *   被测核心就是"真读盘"：文件真实存在于磁盘（或不存在），UTF-8 中文真实读回。
+ *   好制造"记录不存在 / 记录在但文件丢 / 类型不支持"几种场景；
+ * - 真的 LocalFileStorageService + 真的 PdfTextExtractor + @TempDir 是"今天的主角"——
+ *   被测核心就是"真读盘、真解析 PDF"：PDF 样本由 TestPdfWriter 现场生成。
  *
  * 中文断言的坑：MockHttpServletResponse 默认按 ISO-8859-1 解码响应体会得到乱码，
  * 所以涉及正文的断言统一用 getContentAsString(StandardCharsets.UTF_8) 拿到完整
@@ -54,7 +58,8 @@ class DocumentContentTest {
     void setUp() {
         documentMapper = mock(DocumentMapper.class);
         LocalFileStorageService storageService = new LocalFileStorageService(tempDir.toString());
-        DocumentService documentService = new DocumentService(documentMapper, storageService);
+        DocumentService documentService = new DocumentService(
+                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor());
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(documentService))
@@ -153,18 +158,114 @@ class DocumentContentTest {
     }
 
     @Test
-    @DisplayName("file_type 不是 Markdown（PDF）：400 + 明确提示仅支持 Markdown")
-    void readNonMarkdownTypeReturns400() throws Exception {
-        // 记录是 PDF：文档存在、文件也在盘上，但内容读取只放行 MD。
-        String pdfKey = "22222222-3333-4444-5555-666666666666.pdf";
-        seedDocument(17L, pdfKey, "report.pdf", "PDF", "%PDF-1.4".getBytes(StandardCharsets.UTF_8));
+    @DisplayName("file_type 是 DOCX：400 + 明确提示支持 MD 和 PDF")
+    void readUnsupportedTypeReturns400() throws Exception {
+        // Day 20 起 PDF 已放行，"类型不支持"的守门测试改用 DOCX 扮演被拒类型。
+        String docxKey = "22222222-3333-4444-5555-666666666666.docx";
+        seedDocument(17L, docxKey, "report.docx", "DOCX", "fake docx bytes".getBytes(StandardCharsets.UTF_8));
 
         String body = bodyOf(mockMvc.perform(get("/api/documents/17/content"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(containsString("仅支持 Markdown")))
+                .andExpect(jsonPath("$.message").value(containsString("不支持内容读取")))
                 .andReturn());
 
-        assertFalse(body.contains(pdfKey), "类型被拒时不应暴露 storageKey");
+        assertFalse(body.contains(docxKey), "类型被拒时不应暴露 storageKey");
+    }
+
+    @Test
+    @DisplayName("正常 PDF：200 + 提取出的文本进 content，storageKey 不外泄")
+    void readExistingPdfReturnsExtractedContent() throws Exception {
+        String pdfKey = "33333333-4444-5555-6666-777777777777.pdf";
+        Path pdfFile = tempDir.resolve(pdfKey);
+        TestPdfWriter.writeTextPdf(pdfFile, "Hello DocFlow Day 20");
+        seedDocument(21L, pdfKey, "report.pdf", "PDF", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/21/content"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(21))
+                .andExpect(jsonPath("$.originalFilename").value("report.pdf"))
+                .andReturn());
+
+        String content = JsonPath.read(body, "$.content");
+        assertTrue(content.contains("Hello DocFlow Day 20"),
+                "整条链路提取的文本应包含原文，实际是：" + content);
+        assertEquals(content.length(), (int) JsonPath.read(body, "$.characterCount"));
+        assertFalse(body.contains(pdfKey), "storageKey 是内部细节，不允许出现在响应里");
+    }
+
+    @Test
+    @DisplayName("中文 PDF：UTF-8 全链路无乱码")
+    void readChinesePdfWithoutMojibake() throws Exception {
+        Assumptions.assumeTrue(TestPdfWriter.findChineseFont() != null, "本机无中文 TTF 字体，跳过");
+
+        String pdfKey = "44444444-5555-6666-7777-888888888888.pdf";
+        Path pdfFile = tempDir.resolve(pdfKey);
+        TestPdfWriter.writeChineseTextPdf(pdfFile, "季度报告：PDF 文本提取功能上线。");
+        seedDocument(22L, pdfKey, "季度报告.pdf", "PDF", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/22/content"))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        String content = JsonPath.read(body, "$.content");
+        assertTrue(content.contains("季度报告：PDF 文本提取功能上线。"),
+                "中文应逐字还原，实际是：" + content);
+    }
+
+    @Test
+    @DisplayName("PDF 类型但文件被删：404 + 如实说'文件已丢失'（与 MD 同一条翻译）")
+    void readPdfWhenFileLostReturns404() throws Exception {
+        String pdfKey = "55555555-6666-7777-8888-999999999999.pdf";
+        // 只造数据库记录（content = null，不落盘），模拟文件被人手动删除。
+        seedDocument(23L, pdfKey, "report.pdf", "PDF", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/23/content"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("文档存在，但文件已丢失，请联系管理员"))
+                .andReturn());
+
+        assertFalse(body.contains(tempDir.toString()), "响应不能泄露存储目录的真实路径");
+    }
+
+    @Test
+    @DisplayName("损坏的 PDF：422 + 提示无法解析（专属翻译，不再伪装成成功或笼统 500）")
+    void readCorruptedPdfReturns422() throws Exception {
+        String pdfKey = "66666666-7777-8888-9999-000000000000.pdf";
+        TestPdfWriter.writeCorruptedPdf(tempDir.resolve(pdfKey));
+        seedDocument(24L, pdfKey, "broken.pdf", "PDF", null);
+
+        mockMvc.perform(get("/api/documents/24/content"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.message").value("PDF 文件损坏或格式无法解析"));
+    }
+
+    @Test
+    @DisplayName("加密的 PDF：422 + 提示已加密（不被误报成损坏）")
+    void readEncryptedPdfReturns422() throws Exception {
+        String pdfKey = "77777777-8888-9999-0000-111111111111.pdf";
+        TestPdfWriter.writeEncryptedPdf(tempDir.resolve(pdfKey), "top secret");
+        seedDocument(25L, pdfKey, "secret.pdf", "PDF", null);
+
+        mockMvc.perform(get("/api/documents/25/content"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.message").value("PDF 已加密，无法提取文本"));
+    }
+
+    @Test
+    @DisplayName("没有文字层的 PDF（扫描件替身）：422 + 提示不支持 OCR")
+    void readBlankPdfReturns422() throws Exception {
+        String pdfKey = "88888888-9999-0000-1111-222222222222.pdf";
+        TestPdfWriter.writeBlankPdf(tempDir.resolve(pdfKey));
+        seedDocument(26L, pdfKey, "scanned.pdf", "PDF", null);
+
+        mockMvc.perform(get("/api/documents/26/content"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.message").value(
+                        "PDF 中没有可提取的文本（可能是扫描图片型 PDF，暂不支持 OCR）"));
     }
 }

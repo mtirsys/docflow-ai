@@ -52,7 +52,8 @@ class DocumentUploadTest {
     void setUp() {
         documentMapper = mock(DocumentMapper.class);
         LocalFileStorageService storageService = new LocalFileStorageService(tempDir.toString());
-        DocumentService documentService = new DocumentService(documentMapper, storageService);
+        DocumentService documentService = new DocumentService(
+                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor());
         when(documentMapper.insert(org.mockito.ArgumentMatchers.any(Document.class)))
                 .thenAnswer(invocation -> {
                     invocation.getArgument(0, Document.class).setId(101L);
@@ -144,7 +145,8 @@ class DocumentUploadTest {
         LocalFileStorageService brokenStorage = new LocalFileStorageService(blocker.toString());
         MockMvc brokenMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(
-                        new DocumentService(mock(DocumentMapper.class), brokenStorage)))
+                        new DocumentService(mock(DocumentMapper.class), brokenStorage,
+                                new docflow_backend.parser.PdfTextExtractor())))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
@@ -153,7 +155,7 @@ class DocumentUploadTest {
                                 "file", "a.pdf", "application/pdf", "x".getBytes())))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.status").value(500))
-                .andExpect(jsonPath("$.message").value("文件保存失败，请稍后重试"))
+                .andExpect(jsonPath("$.message").value("文件操作失败，请稍后重试"))
                 .andReturn().getResponse().getContentAsString();
 
         assertFalse(body.contains("blocker"), "响应不能泄露存储路径细节");
