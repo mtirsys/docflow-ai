@@ -59,10 +59,20 @@
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 	<dependency>
-			<groupId>org.apache.pdfbox</groupId>
-			<artifactId>pdfbox</artifactId>
-			<version>3.0.8</version>
-		</dependency>
+		<groupId>org.apache.pdfbox</groupId>
+		<artifactId>pdfbox</artifactId>
+		<version>3.0.8</version>
+	</dependency>
+	<!-- Day 21：Apache POI，解析 DOCX（Office Open XML = ZIP + XML）。
+	     poi-ooxml 是处理 .docx/.xlsx/.pptx 这代格式的模块，会传递带入
+	     poi 核心、xmlbeans、commons-compress 等依赖，无需逐个声明。
+	     6.0.0 要求 Java 17+（本项目 Java 21），其内部 PDFBox 版本与本项目
+	     现有 3.0.8 一致，无版本冲突。 -->
+	<dependency>
+		<groupId>org.apache.poi</groupId>
+		<artifactId>poi-ooxml</artifactId>
+		<version>6.0.0</version>
+	</dependency>
 	<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>

@@ -9,6 +9,7 @@ import docflow_backend.exception.DocumentNotFoundException;
 import docflow_backend.exception.FileStorageException;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
+import docflow_backend.parser.DocxTextExtractor;
 import docflow_backend.parser.PdfTextExtractor;
 import docflow_backend.storage.LocalFileStorageService;
 import org.slf4j.Logger;
@@ -35,13 +36,16 @@ public class DocumentService {
     private final DocumentMapper documentMapper;
     private final LocalFileStorageService fileStorageService;
     private final PdfTextExtractor pdfTextExtractor;
+    private final DocxTextExtractor docxTextExtractor;
 
     public DocumentService(DocumentMapper documentMapper,
                            LocalFileStorageService fileStorageService,
-                           PdfTextExtractor pdfTextExtractor) {
+                           PdfTextExtractor pdfTextExtractor,
+                           DocxTextExtractor docxTextExtractor) {
         this.documentMapper = documentMapper;
         this.fileStorageService = fileStorageService;
         this.pdfTextExtractor = pdfTextExtractor;
+        this.docxTextExtractor = docxTextExtractor;
     }
 
     public Long create(Document document) {
@@ -273,21 +277,22 @@ public class DocumentService {
     }
 
     /**
-     * Day 19：读取文档内容。Day 20 起按数据库里的 file_type 分流：
+     * Day 19：读取文档内容。按数据库里的 file_type 分流：
      * - MD：Day 19 的 readText() 原路复用；
-     * - PDF：locateExistingFile() 安全定位后交给 PdfTextExtractor 提取文字；
-     * - 其他类型（DOCX 等）：仍按"类型不支持"拒绝（400），将来再放行。
+     * - PDF：Day 20，locateExistingFile() 安全定位后交给 PdfTextExtractor 提取文字；
+     * - DOCX：Day 21，同一套两步接力交给 DocxTextExtractor（Apache POI）提取文字；
+     * - 其他类型：仍按"类型不支持"拒绝（400），守门的测试由 TXT 等类型扮演。
      *
      * 编排步骤，失败全部走既有通道：
      * 1. findById(id)：文档不存在 → DocumentNotFoundException → 404；
      * 2. 类型检查：只信服务器入库的 file_type（upload 时由扩展名算出，客户端改不了），
      *    绝不信任浏览器自报的 Content-Type；不支持 → IllegalArgumentException → 400；
-     * 3. 取文件：两条路都会遇到"记录在、文件丢"（FileNotFoundException），
+     * 3. 取文件：三条路都会遇到"记录在、文件丢"（FileNotFoundException），
      *    统一翻译成 404 + 如实提示，与 download() 的手法一致；
-     * 4. PDF 内容解析失败（损坏/加密/无文字层/超限）→ DocumentParseException
-     *    由提取器抛出（Day 20 任务 D 会在全局处理器给它专门的翻译）。
+     * 4. PDF/DOCX 内容解析失败（损坏/加密/空文档/超限）→ DocumentParseException
+     *    由提取器抛出，全局处理器翻译成 422。
      *
-     * 返回结构对客户端零变化：MD 和 PDF 最终都汇入同一个
+     * 返回结构对客户端零变化：MD、PDF、DOCX 最终都汇入同一个
      * DocumentContentResponse，前端不需要知道后端用了哪种解析方式。
      */
     public DocumentContentResponse readContent(Long id) {
@@ -305,9 +310,13 @@ public class DocumentService {
                 // 两步接力：存储层安检交出 Path，解析层只管"拆包裹提文字"。
                 content = pdfTextExtractor.extract(
                         fileStorageService.locateExistingFile(document.getStorageKey()));
+            } else if ("DOCX".equalsIgnoreCase(fileType)) {
+                // Day 21：与 PDF 分支完全同构——同一套安检，换一位懂 POI 的拆包师傅。
+                content = docxTextExtractor.extract(
+                        fileStorageService.locateExistingFile(document.getStorageKey()));
             } else {
                 throw new IllegalArgumentException(
-                        "该文档类型不支持内容读取，目前支持 Markdown（.md）和 PDF（.pdf）");
+                        "该文档类型不支持内容读取，目前支持 Markdown（.md）、PDF（.pdf）和 Word（.docx）");
             }
         } catch (FileNotFoundException e) {
             log.error("文档内容对应的存储文件缺失：id={}, storageKey={}",

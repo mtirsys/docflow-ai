@@ -6,6 +6,7 @@ import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
 import docflow_backend.service.DocumentService;
 import docflow_backend.storage.LocalFileStorageService;
+import docflow_backend.testsupport.TestDocxWriter;
 import docflow_backend.testsupport.TestPdfWriter;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,7 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * GET /api/documents/{id}/content 的自动化测试（MockMvc standalone，不起服务、不连数据库）。
- * Day 19 覆盖 Markdown 读取；Day 20 扩展覆盖 PDF 提取（正常/中文/丢失/损坏/加密/无文字层）。
+ * Day 19 覆盖 Markdown 读取；Day 20 扩展覆盖 PDF 提取（正常/中文/丢失/损坏/加密/无文字层）；
+ * Day 21 扩展覆盖 DOCX 提取（正常/中文/表格/空/损坏/丢失）。
  *
  * 装配取舍和 DocumentDownloadTest 同源：
  * - mock 的 DocumentMapper 是"边界外的邻居"——测试需要它按剧本回答 findById，
@@ -59,7 +61,7 @@ class DocumentContentTest {
         documentMapper = mock(DocumentMapper.class);
         LocalFileStorageService storageService = new LocalFileStorageService(tempDir.toString());
         DocumentService documentService = new DocumentService(
-                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor());
+                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(documentService))
@@ -158,11 +160,12 @@ class DocumentContentTest {
     }
 
     @Test
-    @DisplayName("file_type 是 DOCX：400 + 明确提示支持 MD 和 PDF")
+    @DisplayName("file_type 是 TXT：400 + 明确提示支持的类型")
     void readUnsupportedTypeReturns400() throws Exception {
-        // Day 20 起 PDF 已放行，"类型不支持"的守门测试改用 DOCX 扮演被拒类型。
-        String docxKey = "22222222-3333-4444-5555-666666666666.docx";
-        seedDocument(17L, docxKey, "report.docx", "DOCX", "fake docx bytes".getBytes(StandardCharsets.UTF_8));
+        // Day 20 放行了 PDF，Day 21 放行了 DOCX，
+        // "类型不支持"的守门测试改由 TXT 扮演被拒类型（白名单里根本没有它）。
+        String txtKey = "22222222-3333-4444-5555-666666666666.txt";
+        seedDocument(17L, txtKey, "notes.txt", "TXT", "plain text bytes".getBytes(StandardCharsets.UTF_8));
 
         String body = bodyOf(mockMvc.perform(get("/api/documents/17/content"))
                 .andExpect(status().isBadRequest())
@@ -170,7 +173,7 @@ class DocumentContentTest {
                 .andExpect(jsonPath("$.message").value(containsString("不支持内容读取")))
                 .andReturn());
 
-        assertFalse(body.contains(docxKey), "类型被拒时不应暴露 storageKey");
+        assertFalse(body.contains(txtKey), "类型被拒时不应暴露 storageKey");
     }
 
     @Test
@@ -267,5 +270,102 @@ class DocumentContentTest {
                 .andExpect(jsonPath("$.status").value(422))
                 .andExpect(jsonPath("$.message").value(
                         "PDF 中没有可提取的文本（可能是扫描图片型 PDF，暂不支持 OCR）"));
+    }
+
+    @Test
+    @DisplayName("正常 DOCX：200 + POI 提取的文本进 content，storageKey 不外泄")
+    void readExistingDocxReturnsExtractedContent() throws Exception {
+        String docxKey = "12345678-4321-4321-4321-210987654321.docx";
+        TestDocxWriter.writeTextDocx(tempDir.resolve(docxKey), "Hello DocFlow Day 21");
+        seedDocument(31L, docxKey, "report.docx", "DOCX", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/31/content"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(31))
+                .andExpect(jsonPath("$.originalFilename").value("report.docx"))
+                .andReturn());
+
+        String content = JsonPath.read(body, "$.content");
+        assertTrue(content.contains("Hello DocFlow Day 21"),
+                "整条链路提取的文本应包含原文，实际是：" + content);
+        assertEquals(content.length(), (int) JsonPath.read(body, "$.characterCount"));
+        assertFalse(body.contains(docxKey), "storageKey 是内部细节，不允许出现在响应里");
+    }
+
+    @Test
+    @DisplayName("中文 DOCX：UTF-8 全链路无乱码（DOCX 原生 Unicode，无需字体假设）")
+    void readChineseDocxWithoutMojibake() throws Exception {
+        String docxKey = "23456789-4321-4321-4321-210987654321.docx";
+        TestDocxWriter.writeTextDocx(tempDir.resolve(docxKey), "季度报告：Word 文本提取功能上线。");
+        seedDocument(32L, docxKey, "季度报告.docx", "DOCX", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/32/content"))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        String content = JsonPath.read(body, "$.content");
+        assertTrue(content.contains("季度报告：Word 文本提取功能上线。"),
+                "中文应逐字还原，实际是：" + content);
+    }
+
+    @Test
+    @DisplayName("含表格的 DOCX：200 + 表格单元格文字同样进入 content")
+    void readTableDocxReturnsCellText() throws Exception {
+        String docxKey = "34567890-4321-4321-4321-210987654321.docx";
+        TestDocxWriter.writeTableDocx(tempDir.resolve(docxKey),
+                new String[]{"姓名", "成绩"},
+                new String[]{"张三", "95"});
+        seedDocument(33L, docxKey, "成绩表.docx", "DOCX", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/33/content"))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        String content = JsonPath.read(body, "$.content");
+        assertTrue(content.contains("张三") && content.contains("95"),
+                "表格单元格文字应进入整条链路的提取结果，实际是：" + content);
+    }
+
+    @Test
+    @DisplayName("空 DOCX：422 + 如实说没有可提取的文本（不伪装成成功）")
+    void readEmptyDocxReturns422() throws Exception {
+        String docxKey = "45678901-4321-4321-4321-210987654321.docx";
+        TestDocxWriter.writeEmptyDocx(tempDir.resolve(docxKey));
+        seedDocument(34L, docxKey, "blank.docx", "DOCX", null);
+
+        mockMvc.perform(get("/api/documents/34/content"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.message").value(
+                        "DOCX 中没有可提取的文本（可能是空文档或纯图片文档）"));
+    }
+
+    @Test
+    @DisplayName("损坏的 DOCX（txt 改名）：422 + 提示无法解析（不伪装成功，也不误报 500）")
+    void readCorruptedDocxReturns422() throws Exception {
+        String docxKey = "56789012-4321-4321-4321-210987654321.docx";
+        TestDocxWriter.writeCorruptedDocx(tempDir.resolve(docxKey));
+        seedDocument(35L, docxKey, "broken.docx", "DOCX", null);
+
+        mockMvc.perform(get("/api/documents/35/content"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.message").value("DOCX 文件损坏或格式无法解析"));
+    }
+
+    @Test
+    @DisplayName("DOCX 类型但文件被删：404 + 如实说'文件已丢失'（三种类型同一条翻译）")
+    void readDocxWhenFileLostReturns404() throws Exception {
+        String docxKey = "67890123-4321-4321-4321-210987654321.docx";
+        // 只造数据库记录（content = null，不落盘），模拟文件被人手动删除。
+        seedDocument(36L, docxKey, "report.docx", "DOCX", null);
+
+        String body = bodyOf(mockMvc.perform(get("/api/documents/36/content"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("文档存在，但文件已丢失，请联系管理员"))
+                .andReturn());
+
+        assertFalse(body.contains(tempDir.toString()), "响应不能泄露存储目录的真实路径");
     }
 }

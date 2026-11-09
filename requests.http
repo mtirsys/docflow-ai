@@ -236,5 +236,33 @@ GET http://localhost:8080/api/documents/20/content
 ### 6. 扫描图片型 PDF（无文字层）→ 期待 422 {"message":"PDF 中没有可提取的文本（可能是扫描图片型 PDF，暂不支持 OCR）"}
 GET http://localhost:8080/api/documents/21/content
 
-### 7. 类型是 DOCX → 期待 400 {"message":"该文档类型不支持内容读取，目前支持 Markdown（.md）和 PDF（.pdf）"}
+### 7. 类型是 DOCX → Day 21 起已放行，期待 200（验证步骤见下方 Day 21 段）
 GET http://localhost:8080/api/documents/22/content
+
+### ===== Day 21 Word（DOCX）文本提取 =====
+# 前置准备：用 Word 或 WPS 新建一份 .docx（建议包含中文段落和表格），
+# POST /upload 上传，记下返回的 id。
+
+### 1. 正常读取 DOCX 内容 → 期待 200
+# {"id":23,"originalFilename":"报告.docx","content":"第一段…\n表格…","characterCount":123}
+# 核对：content 是 Word 正文文本（段落和表格都在）；中文不乱码；storageKey 不出现。
+GET http://localhost:8080/api/documents/23/content
+
+### 2. 读取不存在的文档 ID → 期待 404 {"message":"文档不存在：id=99999",...}
+GET http://localhost:8080/api/documents/99999/content
+
+### 3. DOCX 类型但文件被手动删除 → 期待 404 {"message":"文档存在，但文件已丢失，请联系管理员",...}
+# 操作：查 MySQL 拿到该 DOCX 记录的 storageKey，去 D:/docflow-storage 手动删掉文件，再请求。
+GET http://localhost:8080/api/documents/23/content
+
+### 4. 损坏的 DOCX（txt 改名 .docx 后上传）→ 期待 422 {"status":422,"message":"DOCX 文件损坏或格式无法解析",...}
+# 操作：把任意文本文件后缀改成 .docx 上传，再请求其 content，观察是 422 而不是 500。
+GET http://localhost:8080/api/documents/24/content
+
+### 5. 空 DOCX（Word 里什么都不写直接保存上传）→ 期待 422
+# {"message":"DOCX 中没有可提取的文本（可能是空文档或纯图片文档）"}
+GET http://localhost:8080/api/documents/25/content
+
+### 6. 历史遗留类型（早期 JSON 创建的 TXT 记录）→ 期待 400
+# {"message":"该文档类型不支持内容读取，目前支持 Markdown（.md）、PDF（.pdf）和 Word（.docx）"}
+GET http://localhost:8080/api/documents/26/content
