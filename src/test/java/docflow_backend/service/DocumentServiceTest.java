@@ -27,7 +27,8 @@ class DocumentServiceTest {
     private final DocumentMapper documentMapper = mock(DocumentMapper.class);
     private final DocumentService documentService = new DocumentService(
             documentMapper, mock(LocalFileStorageService.class),
-            new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+            new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+            new docflow_backend.parser.TextContentCleaner());
 
     @Test
     @DisplayName("第二页每页五条：offset 为 5，总页数向上取整")
@@ -104,7 +105,8 @@ class DocumentServiceTest {
         // delete 测试需要让文件存储 mock 按剧本回答，所以每个用例单独装配
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
         DocumentService service = new DocumentService(documentMapper, fileStorage,
-                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+                new docflow_backend.parser.TextContentCleaner());
         Long id = 999L;
 
         // findById 返回 null → Service 内部 findById() 抛 DocumentNotFoundException
@@ -122,7 +124,8 @@ class DocumentServiceTest {
     void deleteWhenFileDeleteFailsLeavesDbUntouched() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
         DocumentService service = new DocumentService(documentMapper, fileStorage,
-                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+                new docflow_backend.parser.TextContentCleaner());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -140,7 +143,8 @@ class DocumentServiceTest {
     void deleteWhenFileAlreadyMissingContinuesAndDeletesDb() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
         DocumentService service = new DocumentService(documentMapper, fileStorage,
-                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+                new docflow_backend.parser.TextContentCleaner());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -160,7 +164,8 @@ class DocumentServiceTest {
     void deleteWhenDbThrowsAfterFileDeletedRethrows() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
         DocumentService service = new DocumentService(documentMapper, fileStorage,
-                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+                new docflow_backend.parser.TextContentCleaner());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -177,7 +182,8 @@ class DocumentServiceTest {
     void deleteWhenConcurrentDeleteReturnsZeroThrowsNotFound() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
         DocumentService service = new DocumentService(documentMapper, fileStorage,
-                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+                new docflow_backend.parser.TextContentCleaner());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 

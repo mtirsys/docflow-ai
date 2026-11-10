@@ -53,7 +53,8 @@ class DocumentUploadTest {
         documentMapper = mock(DocumentMapper.class);
         LocalFileStorageService storageService = new LocalFileStorageService(tempDir.toString());
         DocumentService documentService = new DocumentService(
-                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor());
+                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor(),
+                new docflow_backend.parser.DocxTextExtractor(), new docflow_backend.parser.TextContentCleaner());
         when(documentMapper.insert(org.mockito.ArgumentMatchers.any(Document.class)))
                 .thenAnswer(invocation -> {
                     invocation.getArgument(0, Document.class).setId(101L);
@@ -146,7 +147,8 @@ class DocumentUploadTest {
         MockMvc brokenMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(
                         new DocumentService(mock(DocumentMapper.class), brokenStorage,
-                                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor())))
+                                new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
+                                new docflow_backend.parser.TextContentCleaner())))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 

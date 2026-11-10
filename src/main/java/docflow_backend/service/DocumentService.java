@@ -11,6 +11,7 @@ import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
 import docflow_backend.parser.DocxTextExtractor;
 import docflow_backend.parser.PdfTextExtractor;
+import docflow_backend.parser.TextContentCleaner;
 import docflow_backend.storage.LocalFileStorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,15 +38,18 @@ public class DocumentService {
     private final LocalFileStorageService fileStorageService;
     private final PdfTextExtractor pdfTextExtractor;
     private final DocxTextExtractor docxTextExtractor;
+    private final TextContentCleaner textContentCleaner;
 
     public DocumentService(DocumentMapper documentMapper,
                            LocalFileStorageService fileStorageService,
                            PdfTextExtractor pdfTextExtractor,
-                           DocxTextExtractor docxTextExtractor) {
+                           DocxTextExtractor docxTextExtractor,
+                           TextContentCleaner textContentCleaner) {
         this.documentMapper = documentMapper;
         this.fileStorageService = fileStorageService;
         this.pdfTextExtractor = pdfTextExtractor;
         this.docxTextExtractor = docxTextExtractor;
+        this.textContentCleaner = textContentCleaner;
     }
 
     public Long create(Document document) {
@@ -292,6 +296,11 @@ public class DocumentService {
      * 4. PDF/DOCX 内容解析失败（损坏/加密/空文档/超限）→ DocumentParseException
      *    由提取器抛出，全局处理器翻译成 422。
      *
+     * Day 22：三条解析路汇合后的文本统一交给 TextContentCleaner 清洗
+     * （换行统一、行首尾清理、空行折叠、控制字符删除）。一处清洗，三种格式
+     * 共享同一套规则；接口路径和响应字段零变化，characterCount 按清洗后文本计算，
+     * 将来 RAG 分块直接复用这个干净出口。
+     *
      * 返回结构对客户端零变化：MD、PDF、DOCX 最终都汇入同一个
      * DocumentContentResponse，前端不需要知道后端用了哪种解析方式。
      */
@@ -324,11 +333,14 @@ public class DocumentService {
             throw new DocumentNotFoundException(id, "文档存在，但文件已丢失，请联系管理员");
         }
 
+        // Day 22：汇合点统一清洗一次——三条路共用一个洗货标准。
+        String cleaned = textContentCleaner.clean(content);
+
         return new DocumentContentResponse(
                 document.getId(),
                 document.getOriginalFilename(),
-                content,
-                content.length()
+                cleaned,
+                cleaned.length()
         );
     }
 
