@@ -1,5 +1,6 @@
 package docflow_backend.controller;
 
+import docflow_backend.dto.DocumentChunkResponse;
 import docflow_backend.dto.DocumentContentResponse;
 import docflow_backend.dto.DocumentDownload;
 import docflow_backend.dto.DocumentRequest;
@@ -145,6 +146,30 @@ public class DocumentController {
     @GetMapping("/{id}/content")
     public DocumentContentResponse readContent(@PathVariable Long id) {
         return documentService.readContent(id);
+    }
+
+    /**
+     * Day 24：触发文档分块并保存——"为 RAG 备料"的入口。
+     *
+     * 为什么开新接口而不塞进 GET /{id}/content：
+     * - GET 的语义是"读"，读一万次也不该改数据库；分块落库是"写"，
+     *   塞进 GET 等于把缓存写穿透进读接口，违反最小意外原则；
+     * - 客户端可能想先把文档全部读一遍，再决定对哪些做分块——
+     *   读和备料是两个动作，就该是两个按钮；
+     * - readContent 对外行为零变化，老客户端完全无感。
+     *
+     * POST /{id}/chunks 用路径表达"对哪篇文档做什么"，幂等性由 Service 的
+     * "先删后插"保证：重复调用得到同一套块，不会越积越多。
+     *
+     * 失败路径全走既有通道：文档不存在/文件丢 → 404；类型不支持 → 400；
+     * 解析失败 → 422；落库失败 → 500。本方法零分支。
+     */
+    @PostMapping("/{id}/chunks")
+    public ResponseEntity<DocumentChunkResponse> chunk(@PathVariable Long id) {
+        DocumentChunkResponse response = documentService.chunkAndSave(id);
+
+        // 201 Created：这次调用确实"创建"了一批块资源（upload 同款语义）。
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping

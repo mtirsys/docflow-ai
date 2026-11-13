@@ -26,9 +26,11 @@ class DocumentServiceTest {
 
     private final DocumentMapper documentMapper = mock(DocumentMapper.class);
     private final DocumentService documentService = new DocumentService(
-            documentMapper, mock(LocalFileStorageService.class),
+            documentMapper, mock(docflow_backend.mapper.DocumentChunkMapper.class),
+            mock(LocalFileStorageService.class),
             new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
-            new docflow_backend.parser.TextContentCleaner());
+            new docflow_backend.parser.TextContentCleaner(),
+            new docflow_backend.parser.TextChunker());
 
     @Test
     @DisplayName("第二页每页五条：offset 为 5，总页数向上取整")
@@ -104,9 +106,11 @@ class DocumentServiceTest {
     void deleteNonExistentIdThrowsAndTouchesNothing() {
         // delete 测试需要让文件存储 mock 按剧本回答，所以每个用例单独装配
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
-        DocumentService service = new DocumentService(documentMapper, fileStorage,
+        DocumentService service = new DocumentService(documentMapper,
+                mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
-                new docflow_backend.parser.TextContentCleaner());
+                new docflow_backend.parser.TextContentCleaner(),
+                new docflow_backend.parser.TextChunker());
         Long id = 999L;
 
         // findById 返回 null → Service 内部 findById() 抛 DocumentNotFoundException
@@ -123,9 +127,11 @@ class DocumentServiceTest {
     @DisplayName("文件删除失败：抛 FileStorageException，DB 未动、记录仍在、可安全重试")
     void deleteWhenFileDeleteFailsLeavesDbUntouched() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
-        DocumentService service = new DocumentService(documentMapper, fileStorage,
+        DocumentService service = new DocumentService(documentMapper,
+                mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
-                new docflow_backend.parser.TextContentCleaner());
+                new docflow_backend.parser.TextContentCleaner(),
+                new docflow_backend.parser.TextChunker());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -142,9 +148,11 @@ class DocumentServiceTest {
     @DisplayName("数据库记录在但文件已被人手动删：delete 返回 true，正常继续删 DB，状态一致")
     void deleteWhenFileAlreadyMissingContinuesAndDeletesDb() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
-        DocumentService service = new DocumentService(documentMapper, fileStorage,
+        DocumentService service = new DocumentService(documentMapper,
+                mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
-                new docflow_backend.parser.TextContentCleaner());
+                new docflow_backend.parser.TextContentCleaner(),
+                new docflow_backend.parser.TextChunker());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -163,9 +171,11 @@ class DocumentServiceTest {
     @DisplayName("文件已删、DB 抛异常：原样抛出，留下\"记录在文件丢\"由 download 404 兜底")
     void deleteWhenDbThrowsAfterFileDeletedRethrows() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
-        DocumentService service = new DocumentService(documentMapper, fileStorage,
+        DocumentService service = new DocumentService(documentMapper,
+                mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
-                new docflow_backend.parser.TextContentCleaner());
+                new docflow_backend.parser.TextContentCleaner(),
+                new docflow_backend.parser.TextChunker());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -181,9 +191,11 @@ class DocumentServiceTest {
     @DisplayName("文件已删、deleteById 返回 0（并发删除）：抛 DocumentNotFoundException→404")
     void deleteWhenConcurrentDeleteReturnsZeroThrowsNotFound() {
         LocalFileStorageService fileStorage = mock(LocalFileStorageService.class);
-        DocumentService service = new DocumentService(documentMapper, fileStorage,
+        DocumentService service = new DocumentService(documentMapper,
+                mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
-                new docflow_backend.parser.TextContentCleaner());
+                new docflow_backend.parser.TextContentCleaner(),
+                new docflow_backend.parser.TextChunker());
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 

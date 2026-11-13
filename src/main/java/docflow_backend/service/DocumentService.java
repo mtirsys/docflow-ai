@@ -1,5 +1,6 @@
 package docflow_backend.service;
 
+import docflow_backend.dto.DocumentChunkResponse;
 import docflow_backend.dto.DocumentContentResponse;
 import docflow_backend.dto.DocumentDownload;
 import docflow_backend.dto.DocumentPageResponse;
@@ -7,19 +8,25 @@ import docflow_backend.dto.UploadCheckResponse;
 import docflow_backend.dto.UploadResponse;
 import docflow_backend.exception.DocumentNotFoundException;
 import docflow_backend.exception.FileStorageException;
+import docflow_backend.mapper.DocumentChunkMapper;
 import docflow_backend.mapper.DocumentMapper;
 import docflow_backend.model.Document;
+import docflow_backend.model.DocumentChunk;
 import docflow_backend.parser.DocxTextExtractor;
 import docflow_backend.parser.PdfTextExtractor;
+import docflow_backend.parser.TextChunk;
+import docflow_backend.parser.TextChunker;
 import docflow_backend.parser.TextContentCleaner;
 import docflow_backend.storage.LocalFileStorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -35,21 +42,27 @@ public class DocumentService {
     private static final long MAX_UPLOAD_SIZE_BYTES = 10L * 1024 * 1024;
 
     private final DocumentMapper documentMapper;
+    private final DocumentChunkMapper documentChunkMapper;
     private final LocalFileStorageService fileStorageService;
     private final PdfTextExtractor pdfTextExtractor;
     private final DocxTextExtractor docxTextExtractor;
     private final TextContentCleaner textContentCleaner;
+    private final TextChunker textChunker;
 
     public DocumentService(DocumentMapper documentMapper,
+                           DocumentChunkMapper documentChunkMapper,
                            LocalFileStorageService fileStorageService,
                            PdfTextExtractor pdfTextExtractor,
                            DocxTextExtractor docxTextExtractor,
-                           TextContentCleaner textContentCleaner) {
+                           TextContentCleaner textContentCleaner,
+                           TextChunker textChunker) {
         this.documentMapper = documentMapper;
+        this.documentChunkMapper = documentChunkMapper;
         this.fileStorageService = fileStorageService;
         this.pdfTextExtractor = pdfTextExtractor;
         this.docxTextExtractor = docxTextExtractor;
         this.textContentCleaner = textContentCleaner;
+        this.textChunker = textChunker;
     }
 
     public Long create(Document document) {
@@ -306,6 +319,28 @@ public class DocumentService {
      */
     public DocumentContentResponse readContent(Long id) {
         Document document = findById(id);
+        String cleaned = extractCleanedContent(id, document);
+
+        return new DocumentContentResponse(
+                document.getId(),
+                document.getOriginalFilename(),
+                cleaned,
+                cleaned.length()
+        );
+    }
+
+    /**
+     * Day 24：把 Day 19-21 的"按类型提取文字"和 Day 22 的"清洗"抽成的公共步骤。
+     * readContent（读给客户端看）和 chunkAndSave（切了存库）都要先走这两步，
+     * 抽出来共用一份，而不是各复制一遍——复制两份将来改一处漏一处。
+     *
+     * 行为与 Day 22 收尾时完全一致，readContent 对外零变化：
+     * - 文档不存在 → DocumentNotFoundException（404）；
+     * - 类型不支持 → IllegalArgumentException（400）；
+     * - 记录在文件丢 → DocumentNotFoundException（404）；
+     * - 解析失败 → DocumentParseException（422）。
+     */
+    private String extractCleanedContent(Long id, Document document) {
 
         // 常量放 equalsIgnoreCase 左侧：file_type 为 null（早期 JSON 创建的记录）时
         // 返回 false 而不是 NPE。忽略大小写防的是数据库被手工改过的情况。
@@ -334,14 +369,67 @@ public class DocumentService {
         }
 
         // Day 22：汇合点统一清洗一次——三条路共用一个洗货标准。
-        String cleaned = textContentCleaner.clean(content);
+        return textContentCleaner.clean(content);
+    }
 
-        return new DocumentContentResponse(
-                document.getId(),
-                document.getOriginalFilename(),
-                cleaned,
-                cleaned.length()
-        );
+    /**
+     * Day 24：提取 → 清洗 → 分块 → 落库，一次调用完成"为 RAG 备料"。
+     *
+     * 编排四步，前三步全部失败在事务开始之前或事务内但未写库：
+     * 1. findById(id)：文档不存在 → DocumentNotFoundException → 404；
+     * 2. extractCleanedContent(id, document)：复用 Day 19-22 的提取+清洗，
+     *    文件丢 → 404，解析失败 → 422——此时一行 SQL 都还没执行；
+     * 3. textChunker.chunk(cleaned)：纯内存计算，切出的块一块不丢；
+     * 4. 落库：先删旧块、再批量插新块。
+     *
+     * 为什么是"先删后插"而不是"只插不删"或"先插后删"：
+     * 分块参数（chunkSize/overlap）将来可能调整，同一个文档重新分块后块数、
+     * 块边界都会变，旧块留着就是重复的脏数据（检索出同一篇文章两套块）。
+     * 只插不删会越积越多；先插后删则中间时刻文档同时挂着新旧两套块。
+     * 先删后插 + 联合唯一约束 (document_id, chunk_index) 双保险，保证库里
+     * 任何时刻一个文档最多只有一套块。
+     *
+     * @Transactional（本项目第一次用）：删和插必须同生共死——删完旧块、
+     * 插入中途失败（连接断、约束冲突、超长被拒）时自动回滚，旧块回来了，
+     * 库里保持"老的一套"而不是"没有"或"半套新的"。对比 Day 18 delete()
+     * 刻意不用事务（那里有删文件这种事务管不了的磁盘操作），这里全程纯
+     * SQL，正是事务的主场。
+     *
+     * 注解加在 public 的本方法上而不是抽个私有"事务方法"内部调用：
+     * Spring 的事务是代理实现的（调用先进代理、代理开关事务再进真对象），
+     * this.xxx() 内部调用绕过代理，注解会静默失效——经典陷阱，值得记住。
+     */
+    @Transactional
+    public DocumentChunkResponse chunkAndSave(Long id) {
+        // 前三步：查文档 → 提取清洗 → 切块。任何一步失败都直接抛出，
+        // 此时事务里还没有任何 SQL，回滚等于什么都没发生。
+        Document document = findById(id);
+        String cleaned = extractCleanedContent(id, document);
+        List<TextChunk> chunks = textChunker.chunk(cleaned);
+
+        // 半成品转成品：TextChunk（index/text）补上 documentId、charCount，
+        // 才是数据库认识的 DocumentChunk。
+        List<DocumentChunk> entities = new ArrayList<>(chunks.size());
+        long totalChars = 0;
+        for (TextChunk chunk : chunks) {
+            DocumentChunk entity = new DocumentChunk();
+            entity.setDocumentId(id);
+            entity.setChunkIndex(chunk.index());
+            entity.setContent(chunk.text());
+            entity.setCharCount(chunk.text().length());
+            totalChars += chunk.text().length();
+            entities.add(entity);
+        }
+
+        // 先删后插。插入前必须判空：foreach 拼空列表会生成残缺 SQL
+        // （"VALUES" 后面没有行），数据库直接报语法错误。空文档（切完 0 块）
+        // 是合法业务结果：删掉旧块、不插入、回执 0 块即可。
+        documentChunkMapper.deleteByDocumentId(id);
+        if (!entities.isEmpty()) {
+            documentChunkMapper.insertBatch(entities);
+        }
+
+        return new DocumentChunkResponse(id, entities.size(), totalChars);
     }
 
     /**

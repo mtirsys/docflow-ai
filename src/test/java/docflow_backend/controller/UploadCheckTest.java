@@ -40,8 +40,10 @@ class UploadCheckTest {
         // upload-check 只做校验不落盘，存储服务用 mock 占位即可（不会被调用）
         LocalFileStorageService storageService = mock(LocalFileStorageService.class);
         DocumentService documentService = new DocumentService(
-                documentMapper, storageService, new docflow_backend.parser.PdfTextExtractor(),
-                new docflow_backend.parser.DocxTextExtractor(), new docflow_backend.parser.TextContentCleaner());
+                documentMapper, mock(docflow_backend.mapper.DocumentChunkMapper.class), storageService,
+                new docflow_backend.parser.PdfTextExtractor(),
+                new docflow_backend.parser.DocxTextExtractor(), new docflow_backend.parser.TextContentCleaner(),
+                new docflow_backend.parser.TextChunker());
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(documentService))
