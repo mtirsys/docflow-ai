@@ -1,0 +1,6 @@
+﻿workspace now: ws-big6x8hirdo27q87
+HTTP: OK (200)
+model: qwen3.7-text-embedding-flash
+dimensions: 1024
+first 3 values: -0.006046295166015625, 0.0265350341796875, -0.075439453125
+total_tokens: 40

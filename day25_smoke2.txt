@@ -1,0 +1,3 @@
+﻿status: 403
+--- body ---
+{"error":{"message":"Workspace endpoint access denied.","id":"d63cbebf-b0a3-9dd6-ade3-31be1c705cba","type":"access_denied","code":"access_denied"}}

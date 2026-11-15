@@ -1,0 +1,19 @@
+﻿total lines: 6029
+--- results ---
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.434 s -- in docflow_backend.controller.DocumentChunkTest
+[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 6.781 s -- in docflow_backend.controller.DocumentContentTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.176 s -- in docflow_backend.controller.DocumentDownloadTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.170 s -- in docflow_backend.controller.DocumentUploadTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.368 s -- in docflow_backend.controller.UploadCheckTest
+[ERROR] Tests run: 1, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 5.059 s <<< FAILURE! -- in docflow_backend.DocflowBackendApplicationTests
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.551 s -- in docflow_backend.exception.GlobalExceptionHandlerTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.244 s -- in docflow_backend.parser.DocxTextExtractorTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.304 s -- in docflow_backend.parser.PdfTextExtractorTest
+[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.022 s -- in docflow_backend.parser.TextChunkerTest
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.013 s -- in docflow_backend.parser.TextContentCleanerTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.092 s -- in docflow_backend.service.DocumentChunkServiceTest
+[INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.148 s -- in docflow_backend.service.DocumentServiceTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.125 s -- in docflow_backend.service.EmbeddingServiceTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.052 s -- in docflow_backend.storage.LocalFileStorageServiceTest
+[ERROR] Tests run: 119, Failures: 0, Errors: 1, Skipped: 0
+[INFO] BUILD FAILURE

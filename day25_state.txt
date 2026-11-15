@@ -1,0 +1,2 @@
+﻿test3.log exists: False
+repo files: spring-boot-http-codec-4.1.1.jar, spring-boot-http-codec-4.1.1.jar.lastUpdated, spring-boot-http-codec-4.1.1.pom, spring-boot-http-codec-4.1.1.pom.sha1, _remote.repositories

@@ -1,0 +1,4 @@
+﻿test4.log exists: False
+any day25_test*.log: day25_test.log, day25_test2.log
+surefire EmbeddingServiceTest report: False
+surefire dir newest: TEST-docflow_backend.storage.LocalFileStorageServiceTest.xml @ 11/12/2026 22:51:39 | docflow_backend.storage.LocalFileStorageServiceTest.txt @ 11/12/2026 22:51:39 | TEST-docflow_backend.service.DocumentServiceTest.xml @ 11/12/2026 22:51:39
