@@ -30,7 +30,8 @@ class DocumentServiceTest {
             mock(LocalFileStorageService.class),
             new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
             new docflow_backend.parser.TextContentCleaner(),
-            new docflow_backend.parser.TextChunker());
+            new docflow_backend.parser.TextChunker(),
+            mock(EmbeddingService.class));
 
     @Test
     @DisplayName("第二页每页五条：offset 为 5，总页数向上取整")
@@ -110,7 +111,8 @@ class DocumentServiceTest {
                 mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
                 new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(EmbeddingService.class));
         Long id = 999L;
 
         // findById 返回 null → Service 内部 findById() 抛 DocumentNotFoundException
@@ -131,7 +133,8 @@ class DocumentServiceTest {
                 mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
                 new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(EmbeddingService.class));
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -152,7 +155,8 @@ class DocumentServiceTest {
                 mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
                 new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(EmbeddingService.class));
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -175,7 +179,8 @@ class DocumentServiceTest {
                 mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
                 new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(EmbeddingService.class));
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 
@@ -195,7 +200,8 @@ class DocumentServiceTest {
                 mock(docflow_backend.mapper.DocumentChunkMapper.class), fileStorage,
                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
                 new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(EmbeddingService.class));
         Long id = 15L;
         String storageKey = "11111111-2222-3333-4444-555555555555.pdf";
 

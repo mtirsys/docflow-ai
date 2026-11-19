@@ -56,7 +56,8 @@ class DocumentUploadTest {
                 documentMapper, mock(docflow_backend.mapper.DocumentChunkMapper.class), storageService,
                 new docflow_backend.parser.PdfTextExtractor(),
                 new docflow_backend.parser.DocxTextExtractor(), new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(docflow_backend.service.EmbeddingService.class));
         when(documentMapper.insert(org.mockito.ArgumentMatchers.any(Document.class)))
                 .thenAnswer(invocation -> {
                     invocation.getArgument(0, Document.class).setId(101L);
@@ -152,7 +153,8 @@ class DocumentUploadTest {
                                 mock(docflow_backend.mapper.DocumentChunkMapper.class), brokenStorage,
                                 new docflow_backend.parser.PdfTextExtractor(), new docflow_backend.parser.DocxTextExtractor(),
                                 new docflow_backend.parser.TextContentCleaner(),
-                                new docflow_backend.parser.TextChunker())))
+                                new docflow_backend.parser.TextChunker(),
+                                mock(docflow_backend.service.EmbeddingService.class))))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 

@@ -69,7 +69,8 @@ class DocumentChunkServiceTest {
                 new docflow_backend.parser.PdfTextExtractor(),
                 new docflow_backend.parser.DocxTextExtractor(),
                 new docflow_backend.parser.TextContentCleaner(),
-                new TextChunker());
+                new TextChunker(),
+                mock(EmbeddingService.class));
     }
 
     /**

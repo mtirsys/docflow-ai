@@ -43,7 +43,8 @@ class UploadCheckTest {
                 documentMapper, mock(docflow_backend.mapper.DocumentChunkMapper.class), storageService,
                 new docflow_backend.parser.PdfTextExtractor(),
                 new docflow_backend.parser.DocxTextExtractor(), new docflow_backend.parser.TextContentCleaner(),
-                new docflow_backend.parser.TextChunker());
+                new docflow_backend.parser.TextChunker(),
+                mock(docflow_backend.service.EmbeddingService.class));
 
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new DocumentController(documentService))

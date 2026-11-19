@@ -2,6 +2,7 @@ package docflow_backend.service;
 
 import docflow_backend.dto.DocumentChunkResponse;
 import docflow_backend.dto.DocumentContentResponse;
+import docflow_backend.dto.EmbeddingBatchResult;
 import docflow_backend.dto.DocumentDownload;
 import docflow_backend.dto.DocumentPageResponse;
 import docflow_backend.dto.UploadCheckResponse;
@@ -48,6 +49,7 @@ public class DocumentService {
     private final DocxTextExtractor docxTextExtractor;
     private final TextContentCleaner textContentCleaner;
     private final TextChunker textChunker;
+    private final EmbeddingService embeddingService;
 
     public DocumentService(DocumentMapper documentMapper,
                            DocumentChunkMapper documentChunkMapper,
@@ -55,7 +57,8 @@ public class DocumentService {
                            PdfTextExtractor pdfTextExtractor,
                            DocxTextExtractor docxTextExtractor,
                            TextContentCleaner textContentCleaner,
-                           TextChunker textChunker) {
+                           TextChunker textChunker,
+                           EmbeddingService embeddingService) {
         this.documentMapper = documentMapper;
         this.documentChunkMapper = documentChunkMapper;
         this.fileStorageService = fileStorageService;
@@ -63,6 +66,7 @@ public class DocumentService {
         this.docxTextExtractor = docxTextExtractor;
         this.textContentCleaner = textContentCleaner;
         this.textChunker = textChunker;
+        this.embeddingService = embeddingService;
     }
 
     public Long create(Document document) {
@@ -430,6 +434,79 @@ public class DocumentService {
         }
 
         return new DocumentChunkResponse(id, entities.size(), totalChars);
+    }
+
+    /**
+     * Day 27：批量向量化——给一篇文档的所有 Chunk 逐条算 Embedding，返回统计结果。
+     *
+     * 与 chunkAndSave 的分工（"备料"与"下锅"是两件事）：
+     * chunkAndSave 负责"把文本切成块存进库"（Day 24），本方法负责"把库里
+     * 已有的块逐条送进 Embedding 模型"（Day 27）。两者都是"对某篇文档做一件事"，
+     * 但一个写 chunk、一个算向量，职责不同、时机也不同——先切块，再向量化。
+     *
+     * 编排四步，全程只读 + 调模型，不写任何表：
+     * 1. findById(id)：文档不存在 → DocumentNotFoundException → 404，复用既有通道；
+     * 2. documentChunkMapper.findByDocumentId(id)：复用 Day 24 现成的查询，
+     *    不重复造"按文档查块"的逻辑；
+     * 3. 逐条 embed：for 循环里对每块 content 调 embeddingService.embed，
+     *    成功计数、失败捕获记录，见下方"逐条 + 允许部分失败"的说明；
+     * 4. 打包成 EmbeddingBatchResult 返回，不落库。
+     *
+     * 为什么"逐条处理"而不是一次批量调 API：
+     * 不假设 Embedding 模型支持批量输入。当前 Spring AI 的 EmbeddingModel.embed(String)
+     * 是单条接口，逐条调用是最可靠、最不容易出错的做法；将来确认模型和 SDK
+     * 支持批量后，再单独加一个 embed(List&lt;String&gt;) 的优化路径，不在这版预埋。
+     *
+     * 为什么"允许部分失败、不中断"：
+     * 一篇文档可能有几十上百块，其中一块失败就整个中断，会让调用方重跑一整批、
+     * 白白多烧前面已成功的那些块的 API 额度。逐块 try/catch，失败的记下
+     * (chunkIndex, 原因)，成功的照常推进，最后用 successCount/failedCount 交代结局，
+     * 比"要么全成要么全败"更符合批处理对真实网络/限流的预期。
+     *
+     * 为什么本方法不加 @Transactional：
+     * 它不做任何数据库写入，读到的 chunks 列表在内存里、算完的向量也不落库，
+     * 没有"要么全成要么全滚"的一致性诉求。事务是为"写"服务的，这里没有写。
+     *
+     * 关于"重复执行"：今天向量不落库，重复执行不会产生重复数据（数据库纹丝不动），
+     * 唯一代价是重复消耗 API 额度。真正的幂等控制（"哪些块已向量化"标记）属于
+     * 向量落库那一阶段的设计，届时再一起考虑，不在今天这版里预埋。
+     */
+    public EmbeddingBatchResult batchEmbed(Long id) {
+        // 1. 文档必须存在：不存在时 findById 自己抛 DocumentNotFoundException（→404）。
+        findById(id);
+
+        // 2. 取出该文档的全部块，chunk_index 升序。空列表合法（文档从没切过块），
+        //    后面的循环一次都不进，自然得到 totalChunks=0 的"全零"回执。
+        List<DocumentChunk> chunks = documentChunkMapper.findByDocumentId(id);
+
+        // 统计状态：成功数、失败数、失败明细、维度。
+        int successCount = 0;
+        int failedCount = 0;
+        int dimensions = 0;
+        List<EmbeddingBatchResult.ChunkEmbeddingFailure> failures = new ArrayList<>();
+
+        // 3. 逐条向量化。for 循环 = "每块都轮到一次"，块与块之间互不影响。
+        for (DocumentChunk chunk : chunks) {
+            try {
+                // 把这一块的正文交给 EmbeddingService，拿到向量。
+                List<Float> vector = embeddingService.embed(chunk.getContent());
+                successCount++;
+                // 记录维度：取第一个成功块的维度即可（模型对同一批固定维度）。
+                // 只记一次，后续块维度必然一致，无需重复赋值。
+                if (dimensions == 0) {
+                    dimensions = vector.size();
+                }
+            } catch (RuntimeException e) {
+                // 4. 单块失败不中断：记下"哪一块、为什么"，继续下一块。
+                failedCount++;
+                failures.add(new EmbeddingBatchResult.ChunkEmbeddingFailure(
+                        chunk.getChunkIndex(),
+                        e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()
+                ));
+            }
+        }
+
+        return new EmbeddingBatchResult(id, chunks.size(), successCount, failedCount, dimensions, failures);
     }
 
     /**
