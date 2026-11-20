@@ -95,6 +95,19 @@
 		<groupId>org.springframework.ai</groupId>
 		<artifactId>spring-ai-starter-model-openai</artifactId>
 	</dependency>
+	<!-- Day 28：Qdrant 官方 Java 客户端（gRPC 协议，走 6334 端口）。
+	     为什么不用 spring-ai-starter-vector-store-qdrant（Spring AI 的 VectorStore 抽象）：
+	     本项目需要把 MySQL chunk 主键直接指定为 Qdrant Point ID、精确控制
+	     payload 字段（documentId/chunkId/chunkIndex 三个就够）、以及 upsert 幂等
+	     ——这些 Point 层的细节在 VectorStore 抽象里是藏起来的，且它 add() 时会
+	     自己再调一次 EmbeddingModel，与已有的 EmbeddingService 路径重复。
+	     官方客户端独立演进（1.20.0，2026-10 发布），不依赖 Spring 版本，
+	     与 Spring Boot 4.1.1 无兼容性问题。 -->
+	<dependency>
+		<groupId>io.qdrant</groupId>
+		<artifactId>client</artifactId>
+		<version>1.20.0</version>
+	</dependency>
 	<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
@@ -107,6 +120,17 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<!-- Day 28：把"真实 Qdrant 集成测试"与普通单元测试分开。
+			     集成测试标了 @Tag("integration")，默认 mvn test 排除它——
+			     普通单元测试不依赖外部 Qdrant，任何时候都能跑；
+			     集成测试单独触发：mvn test -Dgroups=integration（需先启动本地 Qdrant）。 -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<excludedGroups>integration</excludedGroups>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>
