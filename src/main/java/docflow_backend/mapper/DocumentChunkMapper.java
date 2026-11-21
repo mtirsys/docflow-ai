@@ -64,4 +64,30 @@ public interface DocumentChunkMapper {
         ORDER BY chunk_index
         """)
     List<DocumentChunk> findByDocumentId(@Param("documentId") Long documentId);
+
+    /**
+     * Day 29：按主键 id 批量取回 Chunk——语义检索的"回查原文"用。
+     *
+     * 为什么需要它：Qdrant 检索返回的是一组 chunkId（payload 里带的），
+     * 要把这些 id 一次性翻译成可读原文，不该循环发 N 次单条 SELECT。
+     * 一条带 IN (?, ?, ...) 的 SQL 跑完，一次网络往返拿全。
+     *
+     * 不保证顺序：返回顺序由 MySQL 决定（通常按主键），调用方（SearchService）
+     * 按 Qdrant 给的 score 顺序重新组装结果，不依赖这里的顺序。
+     *
+     * 调用约定（与 insertBatch 同款）：ids 非空。foreach 遍历空列表会生成
+     * "WHERE id IN ()" 的残缺 SQL 报语法错——空列表该不该查由业务层判断，
+     * SearchService 在 Qdrant 返回空时直接返回空 List，根本不调到这里。
+     */
+    @Select("""
+        <script>
+        SELECT id, document_id, chunk_index, content, char_count, created_at
+        FROM document_chunks
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        </script>
+        """)
+    List<DocumentChunk> findByIds(@Param("ids") List<Long> ids);
 }

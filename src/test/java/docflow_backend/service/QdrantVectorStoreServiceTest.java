@@ -4,6 +4,7 @@ import com.google.common.util.concurrent.Futures;
 import docflow_backend.config.QdrantProperties;
 import docflow_backend.exception.QdrantStorageException;
 import docflow_backend.service.QdrantVectorStoreService.ChunkVector;
+import docflow_backend.service.QdrantVectorStoreService.ScoredVector;
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.grpc.Collections.CollectionInfo;
 import io.qdrant.client.grpc.Collections.CollectionConfig;
@@ -13,6 +14,8 @@ import io.qdrant.client.grpc.Collections.VectorParams;
 import io.qdrant.client.grpc.Collections.VectorsConfig;
 import io.qdrant.client.grpc.Common.Filter;
 import io.qdrant.client.grpc.Points.PointStruct;
+import io.qdrant.client.grpc.Points.ScoredPoint;
+import io.qdrant.client.grpc.Points.SearchPoints;
 import io.qdrant.client.grpc.Points.UpdateResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,7 +25,10 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
+import static io.qdrant.client.PointIdFactory.id;
+import static io.qdrant.client.ValueFactory.value;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -232,6 +238,97 @@ class QdrantVectorStoreServiceTest {
                 () -> storeService.deleteByDocumentId(7L));
 
         assertTrue(e.getMessage().contains("删除"));
+        assertTrue(e.getMessage().contains("连接拒绝"));
+    }
+
+    // ==================== Day 29：search 方法 ====================
+
+    /** 造一个 ScoredPoint：id=chunkId，带三字段 payload，score 指定。 */
+    private ScoredPoint scoredPoint(long chunkId, float score, long documentId, int chunkIndex) {
+        return ScoredPoint.newBuilder()
+                .setId(id(chunkId))
+                .setScore(score)
+                .putPayload("documentId", value(documentId))
+                .putPayload("chunkId", value(chunkId))
+                .putPayload("chunkIndex", value(chunkIndex))
+                .build();
+    }
+
+    @Test
+    @DisplayName("search 带 documentId：SearchPoints 的 vector/filter/limit/withPayload 逐项正确")
+    void searchBuildsCorrectSearchPointsWithFilter() throws Exception {
+        when(qdrantClient.searchAsync(any(SearchPoints.class)))
+                .thenReturn(Futures.immediateFuture(List.of()));
+
+        storeService.search(fakeVector(), 6L, 5);
+
+        ArgumentCaptor<SearchPoints> captor = ArgumentCaptor.forClass(SearchPoints.class);
+        verify(qdrantClient).searchAsync(captor.capture());
+        SearchPoints sp = captor.getValue();
+        assertEquals("doc_chunks", sp.getCollectionName());
+        assertEquals(1024, sp.getVectorCount(), "查询向量应是 1024 维");
+        assertEquals(5L, sp.getLimit(), "limit 应是 topK=5");
+        assertTrue(sp.hasFilter(), "documentId 非空时应下发 filter");
+        // withPayload 必须开启，否则拿不到 chunkId
+        assertTrue(sp.getWithPayload().getEnable(), "withPayload 必须开启");
+        // 不带 withVectors（结果不需要向量本身）
+        assertFalse(sp.getWithVectors().getEnable(), "withVectors 不应开启（省序列化）");
+    }
+
+    @Test
+    @DisplayName("search documentId=null：不下发 filter（全库搜）")
+    void searchWithoutFilterWhenDocumentIdNull() throws Exception {
+        when(qdrantClient.searchAsync(any(SearchPoints.class)))
+                .thenReturn(Futures.immediateFuture(List.of()));
+
+        storeService.search(fakeVector(), null, 5);
+
+        ArgumentCaptor<SearchPoints> captor = ArgumentCaptor.forClass(SearchPoints.class);
+        verify(qdrantClient).searchAsync(captor.capture());
+        assertFalse(captor.getValue().hasFilter(), "documentId=null 时不应有 filter");
+    }
+
+    @Test
+    @DisplayName("search 返回 ScoredVector：pointId/score/payload 三字段正确翻译")
+    void searchTranslatesScoredPointToScoredVector() throws Exception {
+        when(qdrantClient.searchAsync(any(SearchPoints.class)))
+                .thenReturn(Futures.immediateFuture(List.of(
+                        scoredPoint(3L, 0.9f, 6L, 2),
+                        scoredPoint(1L, 0.7f, 6L, 0))));
+
+        List<ScoredVector> results = storeService.search(fakeVector(), 6L, 5);
+
+        assertEquals(2, results.size());
+        assertEquals(3L, results.get(0).pointId());
+        assertEquals(0.9f, results.get(0).score(), 1e-6);
+        assertEquals(6L, results.get(0).documentId());
+        assertEquals(3L, results.get(0).chunkId());
+        assertEquals(2, results.get(0).chunkIndex());
+        assertEquals(1L, results.get(1).chunkId());
+    }
+
+    @Test
+    @DisplayName("search 空结果：返回空 List（合法，不是异常）")
+    void searchEmptyResultReturnsEmptyList() throws Exception {
+        when(qdrantClient.searchAsync(any(SearchPoints.class)))
+                .thenReturn(Futures.immediateFuture(List.of()));
+
+        List<ScoredVector> results = storeService.search(fakeVector(), null, 5);
+
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("search 网络故障：底层异常翻译成 QdrantStorageException，带操作描述")
+    void searchNetworkFailureTranslated() throws Exception {
+        when(qdrantClient.searchAsync(any(SearchPoints.class)))
+                .thenReturn(Futures.immediateFailedFuture(
+                        new ExecutionException(new RuntimeException("连接拒绝"))));
+
+        QdrantStorageException e = assertThrows(QdrantStorageException.class,
+                () -> storeService.search(fakeVector(), null, 5));
+
+        assertTrue(e.getMessage().contains("向量相似度搜索"));
         assertTrue(e.getMessage().contains("连接拒绝"));
     }
 }

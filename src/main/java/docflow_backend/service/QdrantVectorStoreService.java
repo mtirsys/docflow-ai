@@ -4,12 +4,15 @@ import docflow_backend.config.QdrantProperties;
 import docflow_backend.exception.QdrantStorageException;
 import io.qdrant.client.ConditionFactory;
 import io.qdrant.client.QdrantClient;
+import io.qdrant.client.WithPayloadSelectorFactory;
 import io.qdrant.client.grpc.Collections.CollectionInfo;
 import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
 import io.qdrant.client.grpc.Collections.VectorsConfig;
 import io.qdrant.client.grpc.Common.Filter;
 import io.qdrant.client.grpc.Points.PointStruct;
+import io.qdrant.client.grpc.Points.ScoredPoint;
+import io.qdrant.client.grpc.Points.SearchPoints;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -175,6 +178,91 @@ public class QdrantVectorStoreService {
                 .build();
         return unwrap("统计 documentId=" + documentId + " 的向量数",
                 () -> qdrantClient.countAsync(collectionName, filter, true));
+    }
+
+    /**
+     * Day 29：一次向量相似度搜索的"中性回执"——只暴露检索需要的字段，
+     * 不把 protobuf 的 ScoredPoint 透传给上层（同 ChunkVector 的边界翻译思路）。
+     *
+     * - pointId：Qdrant Point ID（= chunkId），调试/运维定位用；
+     * - score  ：Qdrant 算出的相似度（Cosine 距离下越大越相关）；
+     * - documentId/chunkId/chunkIndex：从 payload 取回，让上层不必再解 protobuf。
+     *
+     * 不含向量本身：检索结果不需要把 1024 维向量搬回 Java，省内存省序列化。
+     */
+    public record ScoredVector(
+            long pointId,
+            float score,
+            long documentId,
+            long chunkId,
+            int chunkIndex) {
+    }
+
+    /**
+     * Day 29：拿一段查询向量，在 doc_chunks 里找最相似的 topK 个 Point。
+     *
+     * 这是本类"向量进/向量存/向量删"之外补上的"向量查"——所有 Qdrant gRPC
+     * 调用仍集中在本类，SearchService 不直接碰 QdrantClient（分层与
+     * VectorizationService 一致：编排层调存储层，存储层调客户端）。
+     *
+     * SearchPoints 的字段逐一说明（API 已用 javap 核实 1.20.0 真实方法名）：
+     * - addAllVector(queryVector)：查询向量是 repeated float，直接塞 List<Float>；
+     * - setFilter(可选)：documentId 非空时才设——null 表示"全库搜，不限文档"；
+     * - setLimit(topK)：Top K，Qdrant 只返回前 K 个最相似的；
+     * - setWithPayload(enable(true))：必须带 payload，否则拿不到 chunkId 回查 MySQL；
+     * - 不设 withVectors：结果不需要 1024 维向量本身，省掉一大坨序列化；
+     * - 不设 vectorName：本项目 Collection 用单一无名向量（见 ensureCollection），
+     *   设了 vectorName 反而会去找命名向量导致报错；
+     * - 不设 scoreThreshold：返回全部 topK 哪怕分数不高，把"阈值过滤"留给上层决策。
+     *
+     * 返回顺序：Qdrant 对 Cosine 已按 score 降序返回，本方法原样保留，不重排。
+     * 空结果合法：库里没点或 filter 命中 0 个，返回空 List（不是异常）。
+     * 失败翻译：gRPC 异常经 unwrap 翻译成 QdrantStorageException（连不上/超时等）。
+     *
+     * @param queryVector 查询向量，维度必须 == Collection 维度（1024）。
+     *                    维度校验不在本方法做：query 来自 EmbeddingService，
+     *                    维度由同一份配置决定，与写入路径同源、不会单独漂移；
+     *                    真不匹配时 Qdrant 自己会拒收并报错，unwrap 会翻译。
+     * @param documentId  可选过滤；null = 全库搜，非 null = 只在该文档内搜。
+     * @param topK        返回条数上限；调用方（SearchService）负责钳到合理范围。
+     */
+    public List<ScoredVector> search(List<Float> queryVector, Long documentId, int topK) {
+        String collectionName = qdrantProperties.getCollection();
+
+        SearchPoints.Builder builder = SearchPoints.newBuilder()
+                .setCollectionName(collectionName)
+                .addAllVector(queryVector)
+                .setLimit(topK)
+                .setWithPayload(WithPayloadSelectorFactory.enable(true));
+
+        // documentId 过滤：复用 deleteByDocumentId/countByDocumentId 同款 ConditionFactory.match。
+        // null 时不下发 filter —— "全库搜"是合法语义（不指定文档的提问）。
+        if (documentId != null) {
+            builder.setFilter(Filter.newBuilder()
+                    .addMust(ConditionFactory.match("documentId", documentId))
+                    .build());
+        }
+
+        SearchPoints searchPoints = builder.build();
+
+        List<ScoredPoint> scored = unwrap("向量相似度搜索（topK=" + topK
+                + (documentId == null ? ", 全库" : ", documentId=" + documentId) + "）",
+                () -> qdrantClient.searchAsync(searchPoints));
+
+        // ScoredPoint → ScoredVector：把 protobuf 翻译成中性 record。
+        // payload 三字段的读取方式与 Day28VerifyIntegrationTest 完全一致（已验证可用）。
+        List<ScoredVector> results = new ArrayList<>(scored.size());
+        for (ScoredPoint point : scored) {
+            long pointId = point.getId().getNum();
+            float score = point.getScore();
+            long payloadDocId = point.getPayloadMap().get("documentId").getIntegerValue();
+            long payloadChunkId = point.getPayloadMap().get("chunkId").getIntegerValue();
+            // chunkIndex 写入时是 int（value(chunkIndex)），读回 getIntegerValue() 返回 long，
+            // 这里显式转回 int——值域本就是小整数，转型安全，且 ScoredVector.chunkIndex 用 int。
+            int payloadChunkIndex = (int) point.getPayloadMap().get("chunkIndex").getIntegerValue();
+            results.add(new ScoredVector(pointId, score, payloadDocId, payloadChunkId, payloadChunkIndex));
+        }
+        return results;
     }
 
     /**

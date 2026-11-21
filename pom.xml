@@ -30,6 +30,12 @@
 		<java.version>21</java.version>
 		<!-- Day 25：Spring AI 版本。官方支持矩阵：2.0.x 对应 Spring Boot 4.0.x / 4.1.x。 -->
 		<spring-ai.version>2.0.2</spring-ai.version>
+		<!-- Day 29：surefire 默认排除的测试分组（@Tag）。
+		     默认 integration：普通 mvn test 只跑单元测试，不依赖外部 Qdrant/MySQL/百炼；
+		     跑集成测试时用 -Dsurefire.excludedGroups= 覆盖成空值（放行 integration 标签），
+		     不必再临时改 pom。属性化是为了让命令行能覆盖——硬编码的插件配置
+		     Maven 不允许 -D 覆盖，这是从 Day 28 核验时踩出来的坑。 -->
+		<surefire.excludedGroups>integration</surefire.excludedGroups>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -121,15 +127,24 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
-			<!-- Day 28：把"真实 Qdrant 集成测试"与普通单元测试分开。
-			     集成测试标了 @Tag("integration")，默认 mvn test 排除它——
-			     普通单元测试不依赖外部 Qdrant，任何时候都能跑；
-			     集成测试单独触发：mvn test -Dgroups=integration（需先启动本地 Qdrant）。 -->
+			<!-- Day 28/29：把"真实 Qdrant/MySQL/百炼 集成测试"与普通单元测试分开。
+			     集成测试标了 @Tag("integration")，默认（见 properties.surefire.excludedGroups）
+			     mvn test 排除它——普通单元测试不依赖外部服务，任何时候都能跑。
+
+			     触发集成测试的两种方式（需先启动本地 Qdrant）：
+			     - IDE：直接 Run 测试类（IDE 绕过 surefire 的 excludedGroups，天然放行）；
+			     - CLI：mvn test -Dtest=XxxIntegrationTest -DfailIfNoTests=false
+			               -Dsurefire.excludedGroups=
+			       （空值覆盖 properties 默认的 integration，放行该标签）。
+
+			     之所以用 ${surefire.excludedGroups} 属性而非硬编码 "integration"：
+			     硬编码的插件配置 Maven 不允许命令行 -D 覆盖（Day 28 核验时踩过——
+			     -DexcludedGroups= 不生效），属性化后命令行才能真正覆盖。 -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<excludedGroups>integration</excludedGroups>
+					<excludedGroups>${surefire.excludedGroups}</excludedGroups>
 				</configuration>
 			</plugin>
 		</plugins>
