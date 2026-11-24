@@ -18,6 +18,12 @@
 - Key 走环境变量 `${DASHSCOPE_API_KEY}`、`${BAILIAN_WORKSPACE_ID}`，绝不写明文、不进 Git。
 - **教训**：Spring AI 1.x→2.0 破坏性变化多，不得凭 1.x 经验套 2.0，必须抓官方文档原文核实。
 
+## Day 28-30：向量化与 RAG 链路（关键约定）
+
+- MySQL 是事实源、Qdrant 是派生数据：**Qdrant 丢数据后不要重新播种，直接重跑 `VectorizeDocumentIntegrationTest`**——`embedAndStore` 内部 `ensureCollection()` 幂等重建 collection（1024 维 + Cosine），`storeDocumentVectors` 先删后写幂等。
+- 跑集成测试的命令行覆盖写法是 `"-Dsurefire.excludedGroups="`（属性名带 surefire. 前缀才生效；`-DexcludedGroups=` 是 Day 28 踩过的不生效写法）。SeedDocument/VectorizeDocument 两个测试头注释里仍写着旧写法，待用户同意后修正。
+- Day 30 起有 ChatModel：`spring.ai.openai.chat.model=qwen3.7-plus`、`temperature=0.2`，与 embedding 复用同一百炼 base-url/api-key。ChatService 只做编排（检索→Prompt→生成→sources），检索细节全在 SearchService。
+
 ## 环境级配置（2026-11-14 起）
 
 - **Maven 走阿里云镜像**：`C:\Users\ye\.m2\settings.xml`（mirrorOf=central → maven.aliyun.com/repository/public）。原因：本机直连 Maven Central 反复超时，DNS 解析出可疑 IP 28.0.0.120。不再需要时删该文件即恢复直连。
