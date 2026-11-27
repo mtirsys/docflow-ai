@@ -217,6 +217,28 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Day 31：调用外部聊天模型失败（ChatService → 百炼）→ 502 Bad Gateway。
+     *
+     * 为什么是 502 而不是 400/500：
+     * - 不是 400：请求本身合法，问题不在客户端；
+     * - 不是 500（严格说）：服务器代码没坏，坏的是我们依赖的上游模型服务；
+     * - 502 的标准语义正是"网关/代理从上游收到无效响应"——Spring 后端在这里
+     *   就是客户端与百炼之间的那一层，语义严丝合缝。
+     * 客户端看到 502 就知道该提示用户"稍后重试"，而不是去检查自己发的 JSON。
+     *
+     * 原始异常（HTTP 状态、超时细节）只写日志，响应里只给通用提示——
+     * 与 FileStorageException 同款兜底思路，不泄露任何内部细节。
+     */
+    @ExceptionHandler(ChatModelCallException.class)
+    public ResponseEntity<ErrorResponse> handleChatModelCall(
+            ChatModelCallException e, HttpServletRequest request) {
+
+        log.error("聊天模型调用失败：{} {}", request.getMethod(), request.getRequestURI(), e);
+
+        return build(HttpStatus.BAD_GATEWAY, "问答模型暂不可用，请稍后重试", request);
+    }
+
+    /**
      * 最后的兜底：所有没被上面接住的异常 → 500。
      * 只写日志（带完整堆栈，供排查），响应体只给一句通用话，不泄露任何内部细节。
      */
